@@ -34,3 +34,4 @@ jobs:
         file: target/debian/*.deb
         file_glob: true
         overwrite: true
+        tag: dev
