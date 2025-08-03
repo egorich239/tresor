@@ -3,8 +3,6 @@ name: Rust
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,7 +14,6 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
-      
 
     steps:
     - uses: actions/checkout@v4
@@ -31,3 +28,9 @@ jobs:
       run: cargo deb
     - name: Run tests
       run: cargo test
+    - name: Publish
+      uses: svenstaro/upload-release-action@2.9.0
+      with:
+        file: target/debian/*.deb
+        file_glob: true
+        overwrite: true
