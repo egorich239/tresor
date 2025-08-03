@@ -1,5 +1,5 @@
 use crate::{
-    api::error::{ApiError, ApiResult},
+    api::{error::{ApiError, ApiResult}, session::{SessionEncKey, SessionId}},
     config::{DataStore, Srv},
     identity::{
         Certificate, IdentityError, IdentityIoError, IdentityRole, SigningIdentity,
@@ -7,16 +7,11 @@ use crate::{
     },
 };
 use chrono::{DateTime, Utc};
-use rand::Rng;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sqlx::{Row, SqlitePool, sqlite::SqliteConnectOptions};
 use std::{fs, sync::Arc, time::Duration};
 use thiserror::Error;
 
 const DB_SCHEMA: &str = include_str!("../sql/schema.sql");
-
-#[derive(Clone)]
-pub struct SessionEncKey([u8; 32]);
 
 struct ModelState {
     pool: SqlitePool,
@@ -180,14 +175,14 @@ impl Model {
                 .as_str()
                 .try_into()
                 .map_err(|_| ApiError::Internal("invalid public_key".into()));
-            if let Err(_) = pk {
+            if pk.is_err() {
                 continue;
             }
             let pk: VerifyingKeyHex = pk.unwrap();
 
             let srv_identity =
                 VerifyingIdentity::load(&self.0.data.server_cert_dir(client), pk.key(), now);
-            if let Err(_) = srv_identity {
+            if srv_identity.is_err() {
                 continue;
             }
             let srv_identity = srv_identity.unwrap();
@@ -209,15 +204,15 @@ impl Model {
         duration: Duration,
         cli_ident: &VerifyingIdentity,
         srv_ident: &VerifyingIdentity,
-    ) -> ApiResult<(String, SessionEncKey)> {
-        let session_id = SessionEncKey::generate().to_hex();
+    ) -> ApiResult<(SessionId, SessionEncKey)> {
+        let session_id = SessionId::new();
         let enc_key = SessionEncKey::generate();
 
         sqlx::query(
             "INSERT INTO sessions (session_id, enc_key, client_identity, server_identity, created_at, expires_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         )
-        .bind(&session_id)
+        .bind(session_id.to_hex())
         .bind(enc_key.to_hex())
         .bind(cli_ident.key_hex())
         .bind(srv_ident.key_hex())
@@ -236,36 +231,3 @@ impl Model {
     }
 }
 
-impl SessionEncKey {
-    pub fn generate() -> Self {
-        let mut rng = rand::thread_rng();
-        let enc_key: [u8; 32] = rng.r#gen();
-        Self(enc_key)
-    }
-    pub fn to_hex(&self) -> String {
-        hex::encode(&self.0)
-    }
-}
-
-impl Serialize for SessionEncKey {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.to_hex())
-    }
-}
-
-impl<'de> Deserialize<'de> for SessionEncKey {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s: String = Deserialize::deserialize(deserializer)?;
-        let bytes = hex::decode(&s).map_err(serde::de::Error::custom)?;
-        let key_bytes = &bytes
-            .try_into()
-            .map_err(|_| serde::de::Error::custom("invalid key length"))?;
-        Ok(Self(*key_bytes))
-    }
-}

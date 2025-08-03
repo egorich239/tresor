@@ -36,9 +36,11 @@ impl From<ApiError> for Response {
             ApiError::InvalidServerIdentity => {
                 (StatusCode::FORBIDDEN, "no matching server identity found").into_response()
             }
-            ApiError::TransientError => {
-                (StatusCode::SERVICE_UNAVAILABLE, "transient error, retry later").into_response()
-            }
+            ApiError::TransientError => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "transient error, retry later",
+            )
+                .into_response(),
             ApiError::Internal(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
             }
@@ -48,11 +50,11 @@ impl From<ApiError> for Response {
 
 pub type ApiResult<T> = std::result::Result<T, ApiError>;
 pub trait VerifyStatusApiExt {
-    fn as_api_result(self) -> ApiResult<()>;
+    fn to_api_result(self) -> ApiResult<()>;
 }
 
 impl VerifyStatusApiExt for VerifyStatus {
-    fn as_api_result(self) -> ApiResult<()> {
+    fn to_api_result(self) -> ApiResult<()> {
         match self {
             VerifyStatus::Ok => Ok(()),
             VerifyStatus::Failed => Err(ApiError::InvalidSignature),

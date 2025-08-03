@@ -11,9 +11,10 @@ use clap::Parser;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tresor::{
-    api::session::{self, SessionRequest},
+    api::session::SessionRequest,
     config::{self, SrvConfig},
     model::Model,
+    srv::session,
 };
 
 // Extractor for getting the current timestamp.
