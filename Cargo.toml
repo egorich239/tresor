@@ -1,0 +1,27 @@
+[package]
+name = "tresor"
+version = "0.1.0"
+edition = "2024"
+description = "A simplistic secrets storage for personal use"
+license = "Apache-2.0"
+authors = ["Ivan Egorov <me@egori.ch>"]
+
+[dependencies]
+aes-gcm = "0.10.3"
+age = "0.11.1"
+anyhow = "1.0.98"
+axum = { version = "0.8.4", features = ["macros"] }
+chrono = { version = "0.4.41", features = ["serde"] }
+clap = { version = "4.5.42", features = ["derive"] }
+ed25519-dalek = { version = "2.2.0", features = ["pkcs8", "pem", "serde", "rand_core", "digest"] }
+hex = "0.4.3"
+humantime = "2.2.0"
+humantime-serde = "1.1.1"
+rand = "0.8"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.142"
+sha2 = "0.10.9"
+sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "sqlite-unbundled"] }
+thiserror = "2.0.12"
+tokio = { version = "1.47.1", features = ["full"] }
+toml = "0.9.4"
