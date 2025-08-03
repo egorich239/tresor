@@ -2,7 +2,7 @@ use crate::{
     api::{error::{ApiError, ApiResult}, session::{SessionEncKey, SessionId}},
     config::{DataStore, Srv},
     identity::{
-        Certificate, IdentityError, IdentityIoError, IdentityRole, SigningIdentity,
+        Certificate, IdentityError, IdentityIoError, IdentityRole, SoftwareIdentity,
         VerifyingIdentity, VerifyingKeyHex,
     },
 };
@@ -75,7 +75,7 @@ impl Model {
         let now = Utc::now();
         let rot = cfg.config.srv_key_rot_interval;
 
-        let root = SigningIdentity::create_self_signed(now, rot);
+        let root = SoftwareIdentity::create_self_signed(now, rot);
         let root_cert_path = root.save(&cfg.data.identities_dir())?;
         std::os::unix::fs::symlink(&root_cert_path, cfg.data.root_identity_cert_symlink())?;
         fs::create_dir(cfg.data.server_cert_dir(root.verifying_identity()))?;
@@ -161,7 +161,7 @@ impl Model {
         &self,
         now: DateTime<Utc>,
         client: &VerifyingIdentity,
-    ) -> ApiResult<(SigningIdentity, Certificate)> {
+    ) -> ApiResult<(SoftwareIdentity, Certificate)> {
         let server_identities = sqlx::query(
             "SELECT public_key FROM identities WHERE role = 'server' AND compromised_at IS NULL ORDER BY id DESC",
         )
@@ -188,7 +188,7 @@ impl Model {
             let srv_identity = srv_identity.unwrap();
 
             let signing_identity =
-                SigningIdentity::load(&self.0.data.identities_dir(), &srv_identity);
+                SoftwareIdentity::load(&self.0.data.identities_dir(), &srv_identity);
 
             if let Ok(signing_identity) = signing_identity {
                 return Ok((signing_identity, srv_identity.certificate().clone()));

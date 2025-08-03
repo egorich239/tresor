@@ -71,7 +71,7 @@ type Result<T> = std::result::Result<T, IdentityError>;
 
 /// An identity that possesses a private key and can create signatures.
 #[derive(Debug, Clone)]
-pub struct SigningIdentity {
+pub struct SoftwareIdentity {
     keypair: SigningKey,
     verifying_identity: VerifyingIdentity,
 }
@@ -140,7 +140,7 @@ impl Display for IdentityRole {
     }
 }
 
-impl SigningIdentity {
+impl SoftwareIdentity {
     /// Creates a new, self-signed identity using the Ed25519ph (pre-hashed) scheme.
     pub fn create_self_signed(valid_since: DateTime<Utc>, valid_for: Duration) -> Self {
         let mut csprng = OsRng;
@@ -158,7 +158,7 @@ impl SigningIdentity {
             certificate: payload._sign(&keypair).expect("should not fail"),
         };
 
-        SigningIdentity {
+        SoftwareIdentity {
             keypair,
             verifying_identity,
         }
@@ -169,7 +169,7 @@ impl SigningIdentity {
         role: IdentityRole,
         valid_since: DateTime<Utc>,
         valid_for: Duration,
-    ) -> SigningIdentity {
+    ) -> SoftwareIdentity {
         let mut csprng = OsRng;
         let keypair = SigningKey::generate(&mut csprng);
         let verifying_key = keypair.verifying_key();
@@ -185,7 +185,7 @@ impl SigningIdentity {
             certificate: payload._sign(&self.keypair).expect("should not fail"),
         };
 
-        SigningIdentity {
+        SoftwareIdentity {
             keypair,
             verifying_identity,
         }
@@ -213,7 +213,7 @@ impl SigningIdentity {
     pub fn load(dir: &Path, subject: &VerifyingIdentity) -> IoResult<Self> {
         let keypair = SigningKey::read_pkcs8_pem_file(_filename(dir, subject.key(), "key"))?;
         match &keypair.verifying_key() == subject.key() {
-            true => Ok(SigningIdentity {
+            true => Ok(SoftwareIdentity {
                 keypair,
                 verifying_identity: subject.clone(),
             }),
@@ -276,7 +276,7 @@ impl VerifyingIdentity {
 }
 
 impl<P: Payload> SignedMessage<P> {
-    pub fn sign(payload: P, identity: &SigningIdentity) -> Self {
+    pub fn sign(payload: P, identity: &SoftwareIdentity) -> Self {
         identity.sign(payload)
     }
 
@@ -337,10 +337,10 @@ fn _filename(dir: &Path, subject_pubkey: &VerifyingKey, ext: &str) -> PathBuf {
         .with_extension(ext)
 }
 
-fn _sign(issuer_keypair: &SigningKey, payload: &[u8]) -> Signature {
+fn _sign(issuer: &SigningKey, payload: &[u8]) -> Signature {
     let mut prehashed = Sha512::new();
     prehashed.update(payload);
-    issuer_keypair
+    issuer
         .sign_prehashed(prehashed, None)
         .expect("signature is not expected to fail")
 }
@@ -445,5 +445,26 @@ impl<'de> Deserialize<'de> for SignatureHex {
             .try_into()
             .map_err(|_| serde::de::Error::custom("invalid key length"))?;
         Ok(Signature::from_bytes(sig_bytes).into())
+    }
+}
+
+#[derive(Error, Debug)]
+#[error("signature failed: {0}")]
+pub struct SignatureError(String);
+
+pub trait SigningIdentity {
+    fn identity(&self) -> &VerifyingIdentity;
+    fn sign_prehashed(&self, digest: Sha512) -> std::result::Result<Signature, SignatureError>;
+}
+
+impl SigningIdentity for SoftwareIdentity {
+    fn identity(&self) -> &VerifyingIdentity {
+        &self.verifying_identity
+    }
+
+    fn sign_prehashed(&self, digest: Sha512) -> std::result::Result<Signature, SignatureError> {
+        self.keypair
+            .sign_prehashed(digest, None)
+            .map_err(|e| SignatureError(e.to_string()))
     }
 }
