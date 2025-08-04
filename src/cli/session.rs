@@ -4,7 +4,7 @@ use crate::{
         message::{SignedMessage, VerifyStatus},
         session::{Nonce, SessionEncKey, SessionId, SessionRequestPayload, SessionResponse},
     },
-    identity::{SignatureError, SigningIdentity, SoftwareIdentity},
+    identity::SigningIdentity,
 };
 use reqwest::blocking::Client;
 use std::io::{self, Read};
@@ -36,7 +36,7 @@ pub fn request_session<S: SigningIdentity>(
 
     // 4. Send the request to the server
     let response = client
-        .post(format!("{}/session", server_url))
+        .post(format!("{server_url}/session"))
         .json(&request)
         .send()
         .map_err(|e| io::Error::other(e.to_string()))?;
