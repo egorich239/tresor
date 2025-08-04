@@ -16,15 +16,16 @@ pub async fn start_session(
     model: &Model,
     req: SessionRequest,
 ) -> ApiResult<Vec<u8>> {
-    let cli_ident = model.fetch_identity(now, &req.payload().identity).await?;
-    req.verify(&cli_ident).to_api_result()?;
-    let (srv_ident, srv_cert) = model.fetch_server_identity_for(now, &cli_ident).await?;
+    let identity = req.payload().identity.clone().into();
+    model.check_identity(now, &req.payload().identity).await?;
+    req.verify(&identity).to_api_result()?;
+    let (srv_ident, srv_cert) = model.fetch_server_identity_for(now, &identity).await?;
 
     let (session_id, enc_key) = model
         .register_session(
             now,
             cfg.max_session_duration,
-            &cli_ident,
+            &identity,
             &srv_ident.verifying_identity(),
         )
         .await?;

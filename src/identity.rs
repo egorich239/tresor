@@ -6,12 +6,11 @@ use ed25519_dalek::{
 use rand::rngs::OsRng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha512};
-use std::time::Duration;
+use std::path::PathBuf;
 use std::{
     fmt::{self, Display},
     path::Path,
 };
-use std::{fs, path::PathBuf};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -48,6 +47,9 @@ pub enum IdentityError {
         valid_until: DateTime<Utc>,
         now: DateTime<Utc>,
     },
+
+    #[error("wrong identity")]
+    WrongIdentity,
 }
 
 #[derive(Error, Debug)]
@@ -90,14 +92,20 @@ impl SoftwareIdentity {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifyingKeyHex(VerifyingKey);
+
+impl From<VerifyingKeyHex> for VerifyingIdentity {
+    fn from(key: VerifyingKeyHex) -> Self {
+        VerifyingIdentity::new(key.0)
+    }
+}
 
 #[derive(Debug, Clone)]
 struct SignatureHex(Signature);
 
 /// An identity whose public key and certificate are known, used for verification.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifyingIdentity(VerifyingKeyHex);
 
 impl VerifyingIdentity {
@@ -134,7 +142,7 @@ pub struct SignedMessage<P: Payload> {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ServerIdentity {
+pub struct ServerIdentityClaim {
     pub server_pubkey: VerifyingKeyHex,
     pub issuer_pubkey: VerifyingKeyHex,
     pub issued_at: DateTime<Utc>,
@@ -143,31 +151,59 @@ pub struct ServerIdentity {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct ServerCertificate(SignedMessage<ServerIdentity>);
+pub struct ServerCertificate(SignedMessage<ServerIdentityClaim>);
 
 impl ServerCertificate {
-    pub fn new(payload: ServerIdentity, identity: &impl SigningIdentity) -> SignatureResult<Self> {
+    pub fn new(
+        payload: ServerIdentityClaim,
+        identity: &impl SigningIdentity,
+    ) -> SignatureResult<Self> {
         Ok(Self(SignedMessage::new(payload, identity)?))
     }
 
-    pub fn check(&self, now: DateTime<Utc>) -> Result<()> {
-        let srv_identity = self.0.payload();
+    pub fn load(dir: &Path, srv_identity: &VerifyingIdentity) -> IoResult<Self> {
+        let cert_path = _filename(dir, srv_identity.key(), "crt");
+        let cert = serde_json::from_slice(&std::fs::read(&cert_path)?)?;
+        Ok(Self(cert))
+    }
 
-        if self.0.verify(&VerifyingIdentity::new(
-            srv_identity.issuer_pubkey.key().clone(),
-        )) != VerifyStatus::Ok
-            || self.0.payload.issued_at > self.0.payload.expires_at
+    pub fn save(&self, dir: &Path) -> IoResult<PathBuf> {
+        let cert_path = _filename(dir, self.0.payload().server_pubkey.key(), "crt");
+        std::fs::write(&cert_path, serde_json::to_vec(&self.0)?)?;
+        Ok(cert_path)
+    }
+
+    pub fn identity(&self) -> VerifyingIdentity {
+        VerifyingIdentity::new(*self.0.payload().server_pubkey.key())
+    }
+
+    pub fn check(
+        &self,
+        now: DateTime<Utc>,
+        expected_srv_identity: &VerifyingIdentity,
+        expected_issuer_identity: &VerifyingIdentity,
+    ) -> Result<()> {
+        let claim = self.0.payload();
+        let issuer_identity = VerifyingIdentity::new(*claim.issuer_pubkey.key());
+        let srv_identity = VerifyingIdentity::new(*claim.server_pubkey.key());
+
+        if self.0.verify(&issuer_identity) != VerifyStatus::Ok || claim.issued_at > claim.expires_at
         {
             return Err(IdentityError::BogusCertificate);
         }
 
-        if now < srv_identity.issued_at || srv_identity.expires_at < now {
+        if issuer_identity != *expected_issuer_identity || srv_identity != *expected_srv_identity {
+            return Err(IdentityError::WrongIdentity);
+        }
+
+        if now < claim.issued_at || claim.expires_at < now {
             return Err(IdentityError::CertificateExpired {
-                valid_since: srv_identity.issued_at,
-                valid_until: srv_identity.expires_at,
+                valid_since: claim.issued_at,
+                valid_until: claim.expires_at,
                 now,
             });
         }
+
         Ok(())
     }
 }
@@ -232,7 +268,7 @@ impl<P: Payload> SignedMessage<P> {
         let sig = identity.sign_prehashed(Self::_prehash(&payload))?;
         Ok(Self {
             payload,
-            signature: sig.into(),
+            signature: sig,
         })
     }
 

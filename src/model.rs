@@ -5,7 +5,8 @@ use crate::{
     },
     config::{DataStore, Srv},
     identity::{
-        IdentityIoError, IdentityRole, ServerCertificate, SoftwareIdentity, VerifyingIdentity, VerifyingKeyHex
+        IdentityIoError, IdentityRole, ServerCertificate, SoftwareIdentity, VerifyingIdentity,
+        VerifyingKeyHex,
     },
 };
 use chrono::{DateTime, Utc};
@@ -86,8 +87,24 @@ impl Model {
         let srv_key_path = srv.save(&cfg.data.identities_dir())?;
         std::os::unix::fs::symlink(&srv_key_path, cfg.data.srv_key_symlink())?;
 
-        Self::_insert_identity(&pool, now, rot, "root", IdentityRole::Admin, &root.verifying_identity()).await?;
-        Self::_insert_identity(&pool, now, rot, "srv", IdentityRole::Server, &srv.verifying_identity()).await?;
+        Self::_insert_identity(
+            &pool,
+            now,
+            rot,
+            "root",
+            IdentityRole::Admin,
+            &root.verifying_identity(),
+        )
+        .await?;
+        Self::_insert_identity(
+            &pool,
+            now,
+            rot,
+            "srv",
+            IdentityRole::Server,
+            &srv.verifying_identity(),
+        )
+        .await?;
 
         pool.close().await;
 
@@ -118,24 +135,23 @@ impl Model {
         Ok(())
     }
 
-    pub async fn fetch_identity(
-        &self,
-        now: DateTime<Utc>,
-        key: &VerifyingKeyHex,
-    ) -> ApiResult<VerifyingIdentity> {
-        todo!();
-        let row = sqlx::query("SELECT compromised_at FROM identities WHERE public_key = ?1")
-            .bind(key.hex())
-            .fetch_optional(&self.0.pool)
-            .await
-            .map_err(|_| ApiError::InvalidIdentity)?
-            .ok_or(ApiError::InvalidIdentity)?;
-
-        let compromised_at: Option<String> = row.get("compromised_at");
-        match compromised_at {
-            Some(_) => Err(ApiError::InvalidIdentity),
-            None => Ok(VerifyingIdentity::new(key.key().clone())),
-        }
+    pub async fn check_identity(&self, now: DateTime<Utc>, key: &VerifyingKeyHex) -> ApiResult<()> {
+        sqlx::query(
+            "
+            SELECT 1
+            FROM identities
+            WHERE public_key = ?1
+              AND compromised_at IS NULL
+              AND ?2 BETWEEN approved_at AND COALESCE(expires_at, ?2)
+            ",
+        )
+        .bind(key.hex())
+        .bind(now.to_rfc3339())
+        .fetch_optional(&self.0.pool)
+        .await
+        .map_err(|_| ApiError::InvalidIdentity)?
+        .ok_or(ApiError::InvalidIdentity)?;
+        Ok(())
     }
 
     pub async fn fetch_server_identity_for(
@@ -160,7 +176,20 @@ impl Model {
                 continue;
             }
             let pk: VerifyingKeyHex = pk.unwrap();
-            todo!()
+            let pk = VerifyingIdentity::new(pk.key().clone());
+            let cert = ServerCertificate::load(&self.0.data.server_certs_dir(), &pk);
+            if cert.is_err() {
+                continue;
+            }
+            let cert = cert.unwrap();
+            if cert.check(now, &pk, client).is_err() {
+                continue;
+            }
+            let srv_ident = SoftwareIdentity::load(&self.0.data.identities_dir(), &cert.identity());
+            if srv_ident.is_err() {
+                continue;
+            }
+            return Ok((srv_ident.unwrap(), cert));
         }
 
         Err(ApiError::InvalidServerIdentity)
@@ -188,12 +217,7 @@ impl Model {
         .bind((now + duration).to_rfc3339())
         .execute(&self.0.pool)
         .await
-        .map_err(|e| match e {
-            sqlx::Error::Database(f) if f.kind() == sqlx::error::ErrorKind::UniqueViolation => { 
-                ApiError::TransientError
-            }
-            _ => ApiError::Internal(e.to_string()),
-        })?;
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
         Ok((session_id, enc_key))
     }
