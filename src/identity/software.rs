@@ -66,6 +66,10 @@ impl SoftwareIdentity {
 }
 
 impl SigningIdentity for SoftwareIdentity {
+    fn verifying_identity(&self) -> VerifyingIdentity {
+        self.verifying_identity()
+    }
+
     fn sign_prehashed(&self, prehashed: Sha512) -> SignatureResult<Signature> {
         self.sign_prehashed(prehashed)
     }

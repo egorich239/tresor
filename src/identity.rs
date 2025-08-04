@@ -15,6 +15,8 @@ pub struct SignatureError(String);
 pub type SignatureResult<T> = std::result::Result<T, SignatureError>;
 
 pub trait SigningIdentity {
+    fn verifying_identity(&self) -> VerifyingIdentity;
+
     fn sign_prehashed(&self, prehashed: Sha512) -> SignatureResult<Signature>;
 }
 

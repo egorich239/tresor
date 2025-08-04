@@ -9,6 +9,10 @@ use crate::api::Payload;
 pub struct RecepientStr(Recipient);
 
 impl RecepientStr {
+    pub fn new(recipient: Recipient) -> Self {
+        Self(recipient)
+    }
+
     pub fn recepient(&self) -> &Recipient {
         &self.0
     }
