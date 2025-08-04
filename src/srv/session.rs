@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 
 use crate::{
     api::{
-        error::{ApiResult, VerifyStatusApiExt},
+        error::{ApiError, ApiResult, VerifyStatusApiExt},
         session::{SessionRequest, SessionResponsePayload},
     },
     config::SrvConfig,
@@ -25,7 +25,7 @@ pub async fn start_session(
             now,
             cfg.max_session_duration,
             &cli_ident,
-            srv_ident.verifying_identity(),
+            &srv_ident.verifying_identity(),
         )
         .await?;
 
@@ -36,6 +36,7 @@ pub async fn start_session(
         enc_key,
     };
 
-    let response = SignedMessage::sign(response_payload, &srv_ident);
+    let response = SignedMessage::new(response_payload, &srv_ident)
+        .map_err(|_| ApiError::Internal("failed to sign response".to_string()))?;
     Ok(req.payload().recepient.encrypt(response))
 }

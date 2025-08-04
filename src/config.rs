@@ -47,11 +47,11 @@ impl DataStore {
         self.path().join("identities")
     }
 
-    pub fn root_identity_cert_symlink(&self) -> PathBuf {
+    pub fn root_key_symlink(&self) -> PathBuf {
         self.path().join("root.crt")
     }
 
-    pub fn srv_identity_cert_symlink(&self) -> PathBuf {
+    pub fn srv_key_symlink(&self) -> PathBuf {
         self.path().join("srv.crt")
     }
 
@@ -61,7 +61,7 @@ impl DataStore {
     }
 
     pub fn server_cert_dir(&self, client: &VerifyingIdentity) -> PathBuf {
-        self.server_certs_dir().join(client.key_hex())
+        self.server_certs_dir().join(client.hex())
     }
 }
 
@@ -76,7 +76,7 @@ pub struct Srv {
 #[derive(Deserialize, Clone)]
 pub struct SrvConfig {
     #[serde(with = "humantime_serde")]
-    pub srv_key_rot_interval: Duration,
+    pub sw_identity_rot_period: Duration,
 
     #[serde(with = "humantime_serde")]
     pub max_session_duration: Duration,

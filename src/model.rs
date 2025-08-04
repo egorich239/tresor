@@ -1,9 +1,11 @@
 use crate::{
-    api::{error::{ApiError, ApiResult}, session::{SessionEncKey, SessionId}},
+    api::{
+        error::{ApiError, ApiResult},
+        session::{SessionEncKey, SessionId},
+    },
     config::{DataStore, Srv},
     identity::{
-        Certificate, IdentityError, IdentityIoError, IdentityRole, SoftwareIdentity,
-        VerifyingIdentity, VerifyingKeyHex,
+        IdentityIoError, IdentityRole, ServerCertificate, SoftwareIdentity, VerifyingIdentity, VerifyingKeyHex
     },
 };
 use chrono::{DateTime, Utc};
@@ -73,21 +75,19 @@ impl Model {
         fs::create_dir(cfg.data.server_certs_dir())?;
 
         let now = Utc::now();
-        let rot = cfg.config.srv_key_rot_interval;
+        let rot = cfg.config.sw_identity_rot_period;
 
-        let root = SoftwareIdentity::create_self_signed(now, rot);
-        let root_cert_path = root.save(&cfg.data.identities_dir())?;
-        std::os::unix::fs::symlink(&root_cert_path, cfg.data.root_identity_cert_symlink())?;
-        fs::create_dir(cfg.data.server_cert_dir(root.verifying_identity()))?;
+        let root = SoftwareIdentity::generate();
+        let root_key_path = root.save(&cfg.data.identities_dir())?;
+        std::os::unix::fs::symlink(&root_key_path, cfg.data.root_key_symlink())?;
+        fs::create_dir(cfg.data.server_cert_dir(&root.verifying_identity()))?;
 
-        let srv = root.create_new_identity(IdentityRole::Server, now, rot);
-        let srv_cert_path = srv.save(&cfg.data.identities_dir())?;
-        std::os::unix::fs::symlink(&srv_cert_path, cfg.data.srv_identity_cert_symlink())?;
-        srv.verifying_identity()
-            .save(&cfg.data.server_cert_dir(root.verifying_identity()))?;
+        let srv = SoftwareIdentity::generate();
+        let srv_key_path = srv.save(&cfg.data.identities_dir())?;
+        std::os::unix::fs::symlink(&srv_key_path, cfg.data.srv_key_symlink())?;
 
-        Self::_insert_identity(&pool, "root", root.verifying_identity()).await?;
-        Self::_insert_identity(&pool, "srv", srv.verifying_identity()).await?;
+        Self::_insert_identity(&pool, now, rot, "root", IdentityRole::Admin, &root.verifying_identity()).await?;
+        Self::_insert_identity(&pool, now, rot, "srv", IdentityRole::Server, &srv.verifying_identity()).await?;
 
         pool.close().await;
 
@@ -98,19 +98,21 @@ impl Model {
 impl Model {
     async fn _insert_identity(
         pool: &SqlitePool,
+        now: DateTime<Utc>,
+        rot: Duration,
         name: &str,
+        role: IdentityRole,
         identity: &VerifyingIdentity,
     ) -> ModelInitResult<()> {
-        let payload = identity.certificate().payload();
         sqlx::query(
             "INSERT INTO identities (name, public_key, role, approved_at, revoked_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
         )
         .bind(name)
-        .bind(identity.key_hex())
-        .bind(payload.subject_role.to_string())
-        .bind(payload.issued_at.to_rfc3339())
-        .bind(payload.expires_at.to_rfc3339())
+        .bind(identity.hex())
+        .bind(role.to_string())
+        .bind(now.to_rfc3339())
+        .bind((now + rot).to_rfc3339())
         .execute(pool)
         .await?;
         Ok(())
@@ -121,47 +123,26 @@ impl Model {
         now: DateTime<Utc>,
         key: &VerifyingKeyHex,
     ) -> ApiResult<VerifyingIdentity> {
-        let db_check = async {
-            let row = sqlx::query("SELECT compromised_at FROM identities WHERE public_key = ?1")
-                .bind(key.hex())
-                .fetch_optional(&self.0.pool)
-                .await
-                .map_err(|_| ApiError::InvalidIdentity)?
-                .ok_or(ApiError::InvalidIdentity)?;
-
-            let compromised_at: Option<String> = row.get("compromised_at");
-            match compromised_at {
-                Some(_) => Err(ApiError::InvalidIdentity),
-                None => Ok(()),
-            }
-        };
-
-        let file_load = async {
-            let key = key.clone();
-            let state = self.0.clone();
-            tokio::task::spawn_blocking(move || {
-                VerifyingIdentity::load(&state.data.identities_dir(), key.key(), now)
-            })
+        todo!();
+        let row = sqlx::query("SELECT compromised_at FROM identities WHERE public_key = ?1")
+            .bind(key.hex())
+            .fetch_optional(&self.0.pool)
             .await
-            .map_err(|e| ApiError::Internal(e.to_string()))?
-            .map_err(|e| match e {
-                IdentityIoError::IdentityError(IdentityError::CertificateExpired { .. }) => {
-                    ApiError::InvalidIdentity
-                }
-                _ => ApiError::Internal(e.to_string()),
-            })
-        };
+            .map_err(|_| ApiError::InvalidIdentity)?
+            .ok_or(ApiError::InvalidIdentity)?;
 
-        let (_db_result, file_result) = tokio::try_join!(db_check, file_load)?;
-
-        Ok(file_result)
+        let compromised_at: Option<String> = row.get("compromised_at");
+        match compromised_at {
+            Some(_) => Err(ApiError::InvalidIdentity),
+            None => Ok(VerifyingIdentity::new(key.key().clone())),
+        }
     }
 
     pub async fn fetch_server_identity_for(
         &self,
         now: DateTime<Utc>,
         client: &VerifyingIdentity,
-    ) -> ApiResult<(SoftwareIdentity, Certificate)> {
+    ) -> ApiResult<(SoftwareIdentity, ServerCertificate)> {
         let server_identities = sqlx::query(
             "SELECT public_key FROM identities WHERE role = 'server' AND compromised_at IS NULL ORDER BY id DESC",
         )
@@ -179,20 +160,7 @@ impl Model {
                 continue;
             }
             let pk: VerifyingKeyHex = pk.unwrap();
-
-            let srv_identity =
-                VerifyingIdentity::load(&self.0.data.server_cert_dir(client), pk.key(), now);
-            if srv_identity.is_err() {
-                continue;
-            }
-            let srv_identity = srv_identity.unwrap();
-
-            let signing_identity =
-                SoftwareIdentity::load(&self.0.data.identities_dir(), &srv_identity);
-
-            if let Ok(signing_identity) = signing_identity {
-                return Ok((signing_identity, srv_identity.certificate().clone()));
-            }
+            todo!()
         }
 
         Err(ApiError::InvalidServerIdentity)
@@ -214,8 +182,8 @@ impl Model {
         )
         .bind(session_id.to_hex())
         .bind(enc_key.to_hex())
-        .bind(cli_ident.key_hex())
-        .bind(srv_ident.key_hex())
+        .bind(cli_ident.hex())
+        .bind(srv_ident.hex())
         .bind(now.to_rfc3339())
         .bind((now + duration).to_rfc3339())
         .execute(&self.0.pool)
@@ -230,4 +198,3 @@ impl Model {
         Ok((session_id, enc_key))
     }
 }
-

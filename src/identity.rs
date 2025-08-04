@@ -61,7 +61,10 @@ pub enum IdenitySignError {
 
 type SignResult<T> = std::result::Result<T, IdenitySignError>;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
+pub struct SigningKeyHex(SigningKey);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerifyStatus {
     Ok,
     Failed,
@@ -71,9 +74,20 @@ type Result<T> = std::result::Result<T, IdentityError>;
 
 /// An identity that possesses a private key and can create signatures.
 #[derive(Debug, Clone)]
-pub struct SoftwareIdentity {
-    keypair: SigningKey,
-    verifying_identity: VerifyingIdentity,
+pub struct SoftwareIdentity(SigningKeyHex);
+
+impl SoftwareIdentity {
+    pub fn new(key: SigningKey) -> Self {
+        Self(SigningKeyHex(key))
+    }
+
+    pub fn key(&self) -> &SigningKey {
+        &self.0.0
+    }
+
+    pub fn verifying_identity(&self) -> VerifyingIdentity {
+        VerifyingIdentity::new(self.key().verifying_key())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -84,8 +98,20 @@ struct SignatureHex(Signature);
 
 /// An identity whose public key and certificate are known, used for verification.
 #[derive(Clone, Debug)]
-pub struct VerifyingIdentity {
-    certificate: Certificate,
+pub struct VerifyingIdentity(VerifyingKeyHex);
+
+impl VerifyingIdentity {
+    pub fn new(key: VerifyingKey) -> Self {
+        Self(VerifyingKeyHex(key))
+    }
+
+    pub fn hex(&self) -> String {
+        hex::encode(self.0.0.as_bytes())
+    }
+
+    fn key(&self) -> &VerifyingKey {
+        self.0.key()
+    }
 }
 
 pub trait Payload: Clone {
@@ -108,18 +134,42 @@ pub struct SignedMessage<P: Payload> {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Certificate {
-    payload: CertificatePayload,
-    signature: SignatureHex,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct CertificatePayload {
-    pub subject_pubkey: VerifyingKeyHex,
-    pub subject_role: IdentityRole,
+pub struct ServerIdentity {
+    pub server_pubkey: VerifyingKeyHex,
     pub issuer_pubkey: VerifyingKeyHex,
     pub issued_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ServerCertificate(SignedMessage<ServerIdentity>);
+
+impl ServerCertificate {
+    pub fn new(payload: ServerIdentity, identity: &impl SigningIdentity) -> SignatureResult<Self> {
+        Ok(Self(SignedMessage::new(payload, identity)?))
+    }
+
+    pub fn check(&self, now: DateTime<Utc>) -> Result<()> {
+        let srv_identity = self.0.payload();
+
+        if self.0.verify(&VerifyingIdentity::new(
+            srv_identity.issuer_pubkey.key().clone(),
+        )) != VerifyStatus::Ok
+            || self.0.payload.issued_at > self.0.payload.expires_at
+        {
+            return Err(IdentityError::BogusCertificate);
+        }
+
+        if now < srv_identity.issued_at || srv_identity.expires_at < now {
+            return Err(IdentityError::CertificateExpired {
+                valid_since: srv_identity.issued_at,
+                valid_until: srv_identity.expires_at,
+                now,
+            });
+        }
+        Ok(())
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,216 +191,74 @@ impl Display for IdentityRole {
 }
 
 impl SoftwareIdentity {
-    /// Creates a new, self-signed identity using the Ed25519ph (pre-hashed) scheme.
-    pub fn create_self_signed(valid_since: DateTime<Utc>, valid_for: Duration) -> Self {
-        let mut csprng = OsRng;
-        let keypair = SigningKey::generate(&mut csprng);
-        let verifying_key = keypair.verifying_key();
-
-        let payload = CertificatePayload {
-            subject_pubkey: VerifyingKeyHex(verifying_key),
-            subject_role: IdentityRole::Admin,
-            issuer_pubkey: VerifyingKeyHex(verifying_key),
-            issued_at: valid_since,
-            expires_at: valid_since + valid_for,
-        };
-        let verifying_identity = VerifyingIdentity {
-            certificate: payload._sign(&keypair).expect("should not fail"),
-        };
-
-        SoftwareIdentity {
-            keypair,
-            verifying_identity,
-        }
+    pub fn generate() -> Self {
+        let mut rng = OsRng;
+        let keypair = SigningKey::generate(&mut rng);
+        SoftwareIdentity::new(keypair)
     }
 
-    pub fn create_new_identity(
-        &self,
-        role: IdentityRole,
-        valid_since: DateTime<Utc>,
-        valid_for: Duration,
-    ) -> SoftwareIdentity {
-        let mut csprng = OsRng;
-        let keypair = SigningKey::generate(&mut csprng);
-        let verifying_key = keypair.verifying_key();
-
-        let payload = CertificatePayload {
-            subject_pubkey: verifying_key.into(),
-            subject_role: role,
-            issuer_pubkey: (*self.verifying_identity().key()).into(),
-            issued_at: valid_since,
-            expires_at: valid_since + valid_for,
-        };
-        let verifying_identity = VerifyingIdentity {
-            certificate: payload._sign(&self.keypair).expect("should not fail"),
-        };
-
-        SoftwareIdentity {
-            keypair,
-            verifying_identity,
-        }
-    }
-
-    pub fn create_verifying_identity(
-        &self,
-        payload: CertificatePayload,
-    ) -> SignResult<VerifyingIdentity> {
-        Ok(VerifyingIdentity {
-            certificate: payload._sign(&self.keypair)?,
-        })
-    }
-
-    pub fn sign<P: Payload>(&self, payload: P) -> SignedMessage<P> {
-        let bytes = payload.to_bytes();
-        let signature = _sign(&self.keypair, bytes.as_ref());
-        SignedMessage { payload, signature }
-    }
-
-    pub fn verifying_identity(&self) -> &VerifyingIdentity {
-        &self.verifying_identity
+    pub fn sign_prehashed(&self, digest: Sha512) -> SignatureResult<Signature> {
+        self.key()
+            .sign_prehashed(digest, None)
+            .map_err(|e| SignatureError(e.to_string()))
     }
 
     pub fn load(dir: &Path, subject: &VerifyingIdentity) -> IoResult<Self> {
         let keypair = SigningKey::read_pkcs8_pem_file(_filename(dir, subject.key(), "key"))?;
         match &keypair.verifying_key() == subject.key() {
-            true => Ok(SoftwareIdentity {
-                keypair,
-                verifying_identity: subject.clone(),
-            }),
+            true => Ok(SoftwareIdentity::new(keypair)),
             false => Err(IdentityIoError::IdentityMismatch),
         }
     }
 
-    /// Saves the private key (PEM) and certificate (JSON) to the specified directory.
-    /// The filenames are derived from the identity's public key.
     pub fn save(&self, dir: &Path) -> IoResult<PathBuf> {
-        let pubkey = self.verifying_identity.key();
-        let key_path = _filename(dir, pubkey, "key");
-        self.keypair
-            .write_pkcs8_pem_file(&key_path, LineEnding::LF)?;
-
-        let result = self.verifying_identity().save(dir)?;
-        Ok(result)
+        let key_path = _filename(dir, self.verifying_identity().key(), "key");
+        self.key().write_pkcs8_pem_file(&key_path, LineEnding::LF)?;
+        Ok(key_path)
     }
 }
 
 impl VerifyingIdentity {
-    pub fn key(&self) -> &VerifyingKey {
-        &self.certificate.payload.subject_pubkey.0
-    }
-
-    pub fn key_hex(&self) -> String {
-        hex::encode(self.key().as_bytes())
-    }
-
-    pub fn certificate(&self) -> &Certificate {
-        &self.certificate
-    }
-
-    pub fn verify<P: Payload>(&self, message: &SignedMessage<P>) -> VerifyStatus {
-        let bytes = message.payload.to_bytes();
-        let signature = message.signature;
-        match _verify(self.key(), bytes.as_ref(), &signature) {
-            true => VerifyStatus::Ok,
-            false => VerifyStatus::Failed,
+    pub fn verify_prehashed(&self, digest: Sha512, signature: &Signature) -> VerifyStatus {
+        match self.key().verify_prehashed(digest, None, signature) {
+            Ok(_) => VerifyStatus::Ok,
+            Err(_) => VerifyStatus::Failed,
         }
-    }
-
-    pub fn save(&self, dir: &Path) -> IoResult<PathBuf> {
-        let json_bytes = serde_json::to_vec_pretty(&self.certificate)
-            .expect("failed to serialize certificate to JSON");
-        let path = _filename(dir, self.key(), "crt");
-        fs::write(&path, json_bytes)?;
-        Ok(path)
-    }
-
-    pub fn load(dir: &Path, subject_pubkey: &VerifyingKey, now: DateTime<Utc>) -> IoResult<Self> {
-        let cert_json = fs::read_to_string(_filename(dir, subject_pubkey, "crt"))?;
-        let certificate: Certificate = serde_json::from_str(&cert_json)?;
-        if &certificate.payload.subject_pubkey.0 != subject_pubkey {
-            return Err(IdentityIoError::IdentityMismatch);
-        }
-        certificate.check(now)?;
-        Ok(VerifyingIdentity { certificate })
     }
 }
 
 impl<P: Payload> SignedMessage<P> {
-    pub fn sign(payload: P, identity: &SoftwareIdentity) -> Self {
-        identity.sign(payload)
+    pub fn new(payload: P, identity: &impl SigningIdentity) -> SignatureResult<Self> {
+        let sig = identity.sign_prehashed(Self::_prehash(&payload))?;
+        Ok(Self {
+            payload,
+            signature: sig.into(),
+        })
+    }
+
+    pub fn verify(&self, identity: &VerifyingIdentity) -> VerifyStatus {
+        identity.verify_prehashed(Self::_prehash(&self.payload), self.signature())
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
     }
 
     pub fn payload(&self) -> &P {
         &self.payload
     }
 
-    pub fn verify(&self, identity: &VerifyingIdentity) -> VerifyStatus {
-        identity.verify(self)
+    fn _prehash(payload: &P) -> Sha512 {
+        let bytes = payload.to_bytes();
+        let mut prehashed = Sha512::new();
+        prehashed.update(&bytes);
+        prehashed
     }
 }
 
-impl CertificatePayload {
-    fn _sign(self, keypair: &SigningKey) -> SignResult<Certificate> {
-        if self.issuer_pubkey.0 != keypair.verifying_key() {
-            return Err(IdenitySignError::WrongIssuer {
-                requested: self.issuer_pubkey.0,
-                signatory: keypair.verifying_key(),
-            });
-        }
-
-        let signature = _sign(keypair, &self.to_bytes());
-        let certificate = Certificate {
-            payload: self,
-            signature: signature.into(),
-        };
-        Ok(certificate)
-    }
-}
-
-impl Certificate {
-    pub fn payload(&self) -> &CertificatePayload {
-        &self.payload
-    }
-
-    pub fn check(&self, now: DateTime<Utc>) -> Result<()> {
-        if !_verify(
-            self.payload.issuer_pubkey.key(),
-            &self.payload.to_bytes(),
-            self.signature.signature(),
-        ) || self.payload.issued_at > self.payload.expires_at
-        {
-            return Err(IdentityError::BogusCertificate);
-        }
-
-        if now < self.payload.issued_at || self.payload.expires_at < now {
-            return Err(IdentityError::CertificateExpired {
-                valid_since: self.payload.issued_at,
-                valid_until: self.payload.expires_at,
-                now,
-            });
-        }
-        Ok(())
-    }
-}
 fn _filename(dir: &Path, subject_pubkey: &VerifyingKey, ext: &str) -> PathBuf {
     dir.join(hex::encode(subject_pubkey.as_bytes()))
         .with_extension(ext)
-}
-
-fn _sign(issuer: &SigningKey, payload: &[u8]) -> Signature {
-    let mut prehashed = Sha512::new();
-    prehashed.update(payload);
-    issuer
-        .sign_prehashed(prehashed, None)
-        .expect("signature is not expected to fail")
-}
-
-fn _verify(issuer_pubkey: &VerifyingKey, payload: &[u8], signature: &Signature) -> bool {
-    let mut prehashed = Sha512::new();
-    prehashed.update(payload);
-    issuer_pubkey
-        .verify_prehashed(prehashed, None, signature)
-        .is_ok()
 }
 
 impl VerifyingKeyHex {
@@ -452,19 +360,14 @@ impl<'de> Deserialize<'de> for SignatureHex {
 #[error("signature failed: {0}")]
 pub struct SignatureError(String);
 
+type SignatureResult<T> = std::result::Result<T, SignatureError>;
+
 pub trait SigningIdentity {
-    fn identity(&self) -> &VerifyingIdentity;
-    fn sign_prehashed(&self, digest: Sha512) -> std::result::Result<Signature, SignatureError>;
+    fn sign_prehashed(&self, prehashed: Sha512) -> SignatureResult<Signature>;
 }
 
 impl SigningIdentity for SoftwareIdentity {
-    fn identity(&self) -> &VerifyingIdentity {
-        &self.verifying_identity
-    }
-
-    fn sign_prehashed(&self, digest: Sha512) -> std::result::Result<Signature, SignatureError> {
-        self.keypair
-            .sign_prehashed(digest, None)
-            .map_err(|e| SignatureError(e.to_string()))
+    fn sign_prehashed(&self, prehashed: Sha512) -> SignatureResult<Signature> {
+        self.sign_prehashed(prehashed)
     }
 }

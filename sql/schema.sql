@@ -44,11 +44,6 @@ CREATE TABLE identities (
     public_key TEXT NOT NULL UNIQUE,
     role TEXT NOT NULL CHECK (role IN ('server', 'admin', 'reader')),
 
-    -- Timestamp of the *identity* creation.
-    approved_at TEXT NOT NULL,
-    -- Timestamp of the *identity* revocation.
-    revoked_at TEXT NOT NULL,
-
     -- Timestamp of the *row* creation.
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
     -- The initial root and server identities will have a NULL created_session_id.
@@ -56,7 +51,11 @@ CREATE TABLE identities (
 
     -- Timestamp of the *identity* compromise.
     compromised_at TEXT,
-    compromised_session_id INTEGER REFERENCES sessions(id)
+    compromised_session_id INTEGER REFERENCES sessions(id),
+
+    -- Timestamp of the *identity* deletion.
+    expires_at TEXT,
+    expires_session_id INTEGER REFERENCES sessions(id)
 );
 CREATE UNIQUE INDEX idx_identities_name_unique ON identities(name) WHERE revoked_at IS NULL;
 
@@ -132,8 +131,8 @@ CREATE TABLE backup_recipients (
     compromised_at TEXT,
     compromised_session_id INTEGER REFERENCES sessions(id),
 
-    revoked_at TEXT,
-    revoked_session_id INTEGER REFERENCES sessions(id)
+    expires_at TEXT,
+    expires_session_id INTEGER REFERENCES sessions(id)
 );
 
 --
