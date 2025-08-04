@@ -8,7 +8,7 @@ use thiserror::Error;
 mod software;
 pub use software::*;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Serialize, Deserialize)]
 #[error("signature failed: {0}")]
 pub struct SignatureError(String);
 

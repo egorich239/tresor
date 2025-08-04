@@ -8,7 +8,6 @@ use std::net::SocketAddr;
 use std::path::Path;
 use tokio::net::TcpListener;
 use tresor::{
-    api::session::SessionRequest,
     config::{self, Config, SrvConfig},
     model::Model,
     srv::session,
