@@ -1,9 +1,15 @@
+use axum::{
+    Json,
+    body::Body,
+    extract::{FromRequest, Request},
+};
 use chrono::{DateTime, Utc};
 
 use crate::{
     api::{
+        SignedMessage,
         error::{ApiError, ApiResult, VerifyStatusApiExt},
-        session::{SessionRequest, SessionResponsePayload}, SignedMessage,
+        session::{SessionRequest, SessionResponsePayload},
     },
     config::SrvConfig,
     model::Model,
@@ -13,8 +19,11 @@ pub async fn start_session(
     now: DateTime<Utc>,
     cfg: &SrvConfig,
     model: &Model,
-    req: SessionRequest,
+    req: Request<Body>,
 ) -> ApiResult<Vec<u8>> {
+    let Json(req): Json<SessionRequest> = Json::from_request(req, &())
+        .await
+        .map_err(|_| ApiError::BadRequest)?;
     let identity = req.payload().identity.clone();
     model.check_identity(now, &req.payload().identity).await?;
     req.verify(&identity).to_api_result()?;

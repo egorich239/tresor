@@ -2,12 +2,16 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::api::VerifyStatus;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Serialize, Deserialize)]
 pub enum ApiError {
+    #[error("invalid request syntax")]
+    BadRequest,
+
     #[error("invalid signature")]
     InvalidSignature,
 
@@ -24,28 +28,19 @@ pub enum ApiError {
     Internal(String),
 }
 
-impl From<ApiError> for Response {
-    fn from(e: ApiError) -> Self {
-        match e {
-            ApiError::InvalidSignature => {
-                (StatusCode::FORBIDDEN, "invalid signature").into_response()
-            }
-            ApiError::InvalidIdentity => {
-                (StatusCode::FORBIDDEN, "invalid identity").into_response()
-            }
-            ApiError::InvalidServerIdentity => {
-                (StatusCode::FORBIDDEN, "no matching server identity found").into_response()
-            }
-            ApiError::TransientError => (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "transient error, retry later",
-            )
-                .into_response(),
-            ApiError::Internal(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
-            }
+impl ApiError {
+    pub fn status_code(&self) -> StatusCode {
+        match self {
+            ApiError::BadRequest => StatusCode::BAD_REQUEST,
+            ApiError::InvalidSignature => StatusCode::FORBIDDEN,
+            ApiError::InvalidIdentity => StatusCode::FORBIDDEN,
+            ApiError::InvalidServerIdentity => StatusCode::FORBIDDEN,
+            ApiError::TransientError => StatusCode::SERVICE_UNAVAILABLE,
+            ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
+
+    pub fn sanitize(&mut self) {}
 }
 
 pub type ApiResult<T> = std::result::Result<T, ApiError>;

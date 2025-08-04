@@ -1,10 +1,6 @@
 use anyhow::{Context, Result, bail};
 use axum::{
-    Json, Router,
-    extract::{FromRequestParts, State},
-    http::{StatusCode, request::Parts},
-    response::{IntoResponse, Response},
-    routing::{get, post},
+    body::Body, extract::{FromRequestParts, Request, State}, http::{request::Parts, StatusCode}, response::{IntoResponse, Response}, routing::{get, post}, Json, Router
 };
 use chrono::{DateTime, Utc};
 use clap::{Args, Parser, Subcommand};
@@ -36,7 +32,7 @@ where
 async fn start_session_handler(
     CurrentTime(now): CurrentTime,
     State((cfg, model)): State<(SrvConfig, Model)>,
-    Json(req): Json<SessionRequest>,
+    req: Request<Body>,
 ) -> Response {
     match session::start_session(now, &cfg, &model, req).await {
         Ok(encrypted_response) => (
@@ -45,7 +41,10 @@ async fn start_session_handler(
             encrypted_response,
         )
             .into_response(),
-        Err(e) => e.into(),
+        Err(mut e) => {
+            e.sanitize();
+            (e.status_code(), Json(e)).into_response()
+        }
     }
 }
 
