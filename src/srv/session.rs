@@ -3,10 +3,9 @@ use chrono::{DateTime, Utc};
 use crate::{
     api::{
         error::{ApiError, ApiResult, VerifyStatusApiExt},
-        session::{SessionRequest, SessionResponsePayload},
+        session::{SessionRequest, SessionResponsePayload}, SignedMessage,
     },
     config::SrvConfig,
-    identity::SignedMessage,
     model::Model,
 };
 
@@ -16,7 +15,7 @@ pub async fn start_session(
     model: &Model,
     req: SessionRequest,
 ) -> ApiResult<Vec<u8>> {
-    let identity = req.payload().identity.clone().into();
+    let identity = req.payload().identity.clone();
     model.check_identity(now, &req.payload().identity).await?;
     req.verify(&identity).to_api_result()?;
     let (srv_ident, srv_cert) = model.fetch_server_identity_for(now, &identity).await?;

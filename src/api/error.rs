@@ -4,7 +4,7 @@ use axum::{
 };
 use thiserror::Error;
 
-use crate::identity::VerifyStatus;
+use crate::api::VerifyStatus;
 
 #[derive(Error, Debug)]
 pub enum ApiError {

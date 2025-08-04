@@ -57,7 +57,6 @@ CREATE TABLE identities (
     expires_at TEXT,
     expires_session_id INTEGER REFERENCES sessions(id)
 );
-CREATE UNIQUE INDEX idx_identities_name_unique ON identities(name) WHERE revoked_at IS NULL;
 
 
 --

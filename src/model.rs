@@ -1,12 +1,11 @@
 use crate::{
     api::{
+        ServerCertificate, ServerIdentityClaim,
         error::{ApiError, ApiResult},
         session::{SessionEncKey, SessionId},
     },
     config::{DataStore, Srv},
-    identity::{
-        IdentityIoError, IdentityRole, ServerCertificate, SoftwareIdentity, VerifyingIdentity,
-    },
+    identity::{IdentityRole, SignatureError, SoftwareIdentity, VerifyingIdentity},
 };
 use chrono::{DateTime, Utc};
 use sqlx::{Row, SqlitePool, sqlite::SqliteConnectOptions};
@@ -38,7 +37,7 @@ pub enum ModelInitError {
     Sqlite(#[from] sqlx::Error),
 
     #[error(transparent)]
-    IdentityIo(#[from] IdentityIoError),
+    SignatureError(#[from] SignatureError),
 }
 
 type ModelInitResult<T> = std::result::Result<T, ModelInitError>;
@@ -86,6 +85,17 @@ impl Model {
         let srv_key_path = srv.save(&cfg.data.identities_dir())?;
         std::os::unix::fs::symlink(&srv_key_path, cfg.data.srv_key_symlink())?;
 
+        ServerCertificate::new(
+            ServerIdentityClaim {
+                server_pubkey: srv.verifying_identity(),
+                issuer_pubkey: root.verifying_identity(),
+                issued_at: now,
+                expires_at: now + rot,
+            },
+            &root,
+        )?
+        .save(&cfg.data.server_cert_dir(&root.verifying_identity()))?;
+
         Self::_insert_identity(
             &pool,
             now,
@@ -121,7 +131,7 @@ impl Model {
         identity: &VerifyingIdentity,
     ) -> ModelInitResult<()> {
         sqlx::query(
-            "INSERT INTO identities (name, public_key, role, approved_at, revoked_at)
+            "INSERT INTO identities (name, public_key, role, created_at, expires_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
         )
         .bind(name)
@@ -187,7 +197,7 @@ impl Model {
             if cert.check(now, &pk, client).is_err() {
                 continue;
             }
-            let srv_ident = SoftwareIdentity::load(&self.0.data.identities_dir(), &cert.identity());
+            let srv_ident = SoftwareIdentity::load(&self.0.data.identities_dir(), cert.identity());
             if srv_ident.is_err() {
                 continue;
             }

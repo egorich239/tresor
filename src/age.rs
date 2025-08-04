@@ -3,7 +3,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::io::Write;
 use std::str::FromStr;
 
-use crate::identity::Payload;
+use crate::api::Payload;
 
 #[derive(Debug, Clone)]
 pub struct RecepientStr(Recipient);

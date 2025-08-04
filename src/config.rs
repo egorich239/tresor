@@ -63,6 +63,10 @@ impl DataStore {
     pub fn server_cert_dir(&self, client: &VerifyingIdentity) -> PathBuf {
         self.server_certs_dir().join(client.hex())
     }
+
+    pub fn file_by_identity(identity: &VerifyingIdentity, ext: &str) -> PathBuf {
+        PathBuf::from(identity.hex()).with_extension(ext)
+    }
 }
 
 #[derive(Deserialize)]

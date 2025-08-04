@@ -1,6 +1,7 @@
 use crate::{
     age::RecepientStr,
-    identity::{ServerCertificate, SignedMessage, VerifyingIdentity},
+    api::{ServerCertificate, SignedMessage},
+    identity::VerifyingIdentity,
 };
 use rand::Rng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
