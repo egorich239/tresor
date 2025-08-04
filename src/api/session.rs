@@ -10,7 +10,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub type SessionRequest = SignedMessage<SessionRequestPayload>;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct RandomBytes<const N: usize>([u8; N]);
 
 impl<const N: usize> Default for RandomBytes<N> {

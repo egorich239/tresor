@@ -70,7 +70,6 @@ enum Commands {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let identity @ Identity::Software { port, .. } = Identity::new(cli.identity)?;
-    let port = port;
     let identity = identity.build()?;
 
     let client = Client::new();

@@ -2,21 +2,23 @@ use crate::{
     api::{
         ServerCertificate, ServerIdentityClaim,
         error::{ApiError, ApiResult},
-        session::{Nonce, SessionId},
+        session::{Nonce, SessionEncKey, SessionId},
     },
     config::{DataStore, Srv},
     identity::{IdentityRole, SignatureError, SoftwareIdentity, VerifyingIdentity},
 };
 use chrono::{DateTime, Utc};
 use sqlx::{Row, SqlitePool, sqlite::SqliteConnectOptions};
-use std::{fs, sync::Arc, time::Duration};
+use std::{collections::HashMap, fs, sync::Arc, time::Duration};
 use thiserror::Error;
+use tokio::sync::RwLock;
 
 const DB_SCHEMA: &str = include_str!("../sql/schema.sql");
 
 struct ModelState {
     pool: SqlitePool,
     data: DataStore,
+    session_keys: RwLock<HashMap<SessionId, SessionEncKey>>,
 }
 
 #[derive(Clone)]
@@ -49,6 +51,7 @@ impl Model {
         Ok(Self(Arc::new(ModelState {
             pool,
             data: data.clone(),
+            session_keys: RwLock::new(HashMap::new()),
         })))
     }
 
@@ -215,8 +218,9 @@ impl Model {
         nonce: Nonce,
         cli_ident: &VerifyingIdentity,
         srv_ident: &VerifyingIdentity,
-    ) -> ApiResult<SessionId> {
+    ) -> ApiResult<(SessionId, SessionEncKey)> {
         let session_id = SessionId::new();
+        let enc_key = SessionEncKey::generate();
 
         sqlx::query(
             "INSERT INTO sessions (session_id, nonce, client_id, server_id, created_at, expires_at)
@@ -237,7 +241,18 @@ impl Model {
         .await
         .map_err(|e| Self::_conflict_as(e, ApiError::BadRequest))?;
 
-        Ok(session_id)
+        if self
+            .0
+            .session_keys
+            .write()
+            .await
+            .insert(session_id.clone(), enc_key.clone())
+            .is_some()
+        {
+            return Err(ApiError::Internal("session_id already exists".into()));
+        }
+
+        Ok((session_id, enc_key))
     }
 
     pub fn _conflict_as(e: sqlx::Error, err: ApiError) -> ApiError {
