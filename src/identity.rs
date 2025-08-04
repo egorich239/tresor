@@ -24,6 +24,12 @@ pub trait SigningIdentity {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifyingIdentity(VerifyingKey);
 
+impl Display for VerifyingIdentity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "VerifyingIdentity({})", self.hex())
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum IdentityRole {

@@ -21,7 +21,7 @@ CREATE TABLE sessions (
     --
     -- NOTE: This is *not* the transient session encryption key which is never
     -- stored.
-    "key" TEXT NOT NULL UNIQUE,
+    session_id TEXT NOT NULL UNIQUE,
 
     -- These are logically foreign keys to identities(id), but the schema constraint
     -- is removed to break the circular dependency.

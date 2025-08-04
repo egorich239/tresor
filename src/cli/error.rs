@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::{api::error::ApiError, identity::SignatureError};
+use crate::{api::error::ApiError, config::ConfigError, identity::SignatureError};
 
 #[derive(Error, Debug)]
 pub enum ClientError {
@@ -18,6 +18,9 @@ pub enum ClientError {
 
     #[error("invalid server signature")]
     InvalidServerSignature,
+
+    #[error("root config error")]
+    RootConfigError(#[from] ConfigError),
 }
 
 pub type ClientResult<T> = Result<T, ClientError>;

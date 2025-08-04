@@ -1,14 +1,18 @@
 use anyhow::{Context, Result, bail};
 use axum::{
-    body::Body, extract::{FromRequestParts, Request, State}, http::{request::Parts, StatusCode}, response::{IntoResponse, Response}, routing::{get, post}, Json, Router
+    Json, Router,
+    body::Body,
+    extract::{FromRequestParts, Request, State},
+    http::{StatusCode, request::Parts},
+    response::{IntoResponse, Response},
+    routing::{get, post},
 };
 use chrono::{DateTime, Utc};
 use clap::{Args, Parser, Subcommand};
-use std::net::SocketAddr;
-use std::path::Path;
+use std::{net::SocketAddr, path::PathBuf};
 use tokio::net::TcpListener;
 use tresor::{
-    config::{self, Config, SrvConfig},
+    config::{Config, SrvConfig},
     model::Model,
     srv::session,
 };
@@ -54,7 +58,7 @@ struct SrvCli {
     command: Option<Commands>,
 
     #[arg(short, long)]
-    config: String,
+    config: PathBuf,
 }
 
 #[derive(Subcommand)]
@@ -77,9 +81,9 @@ async fn main() -> Result<()> {
     let cli = SrvCli::parse();
     let command = cli.command.unwrap_or(Commands::Run);
 
-    println!("Loading configuration from {}...", &cli.config);
-    let config = config::load(Path::new(&cli.config))
-        .with_context(|| format!("failed to load configuration from {}", cli.config))?;
+    println!("Loading configuration from {:?}...", cli.config);
+    let config = Config::load(&cli.config)
+        .with_context(|| format!("failed to load configuration from {:?}", cli.config))?;
     println!("Configuration loaded successfully.");
 
     match command {

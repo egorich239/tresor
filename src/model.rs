@@ -2,7 +2,7 @@ use crate::{
     api::{
         ServerCertificate, ServerIdentityClaim,
         error::{ApiError, ApiResult},
-        session::{SessionEncKey, SessionId},
+        session::SessionId,
     },
     config::{DataStore, Srv},
     identity::{IdentityRole, SignatureError, SoftwareIdentity, VerifyingIdentity},
@@ -155,7 +155,7 @@ impl Model {
             FROM identities
             WHERE public_key = ?1
               AND compromised_at IS NULL
-              AND ?2 BETWEEN approved_at AND COALESCE(expires_at, ?2)
+              AND ?2 BETWEEN created_at AND COALESCE(expires_at, ?2)
             ",
         )
         .bind(key.hex())
@@ -179,6 +179,7 @@ impl Model {
         .await
         .map_err(|e| ApiError::Internal(e.to_string()))?;
 
+        let certs_dir = self.0.data.server_cert_dir(client);
         for row in server_identities {
             let pk: String = row.get("public_key");
             let pk = pk
@@ -189,7 +190,7 @@ impl Model {
                 continue;
             }
             let pk = pk.unwrap();
-            let cert = ServerCertificate::load(&self.0.data.server_certs_dir(), &pk);
+            let cert = ServerCertificate::load(&certs_dir, &pk);
             if cert.is_err() {
                 continue;
             }
@@ -213,16 +214,18 @@ impl Model {
         duration: Duration,
         cli_ident: &VerifyingIdentity,
         srv_ident: &VerifyingIdentity,
-    ) -> ApiResult<(SessionId, SessionEncKey)> {
+    ) -> ApiResult<SessionId> {
         let session_id = SessionId::new();
-        let enc_key = SessionEncKey::generate();
 
         sqlx::query(
-            "INSERT INTO sessions (session_id, enc_key, client_identity, server_identity, created_at, expires_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO sessions (session_id, client_id, server_id, created_at, expires_at)
+             VALUES (
+                ?1, 
+                (SELECT id FROM identities WHERE public_key = ?2 AND role IN ('admin', 'reader')),
+                (SELECT id FROM identities WHERE public_key = ?3 AND role = 'server'),
+                ?4, ?5)",
         )
         .bind(session_id.to_hex())
-        .bind(enc_key.to_hex())
         .bind(cli_ident.hex())
         .bind(srv_ident.hex())
         .bind(now.to_rfc3339())
@@ -231,6 +234,6 @@ impl Model {
         .await
         .map_err(|e| ApiError::Internal(e.to_string()))?;
 
-        Ok((session_id, enc_key))
+        Ok(session_id)
     }
 }

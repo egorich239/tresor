@@ -21,6 +21,14 @@ pub struct Config {
     pub backup: Backup,
 }
 
+impl Config {
+    pub fn load(path: &Path) -> Result<Config, ConfigError> {
+        let contents = fs::read_to_string(path)?;
+        let config: Config = toml::from_str(&contents)?;
+        Ok(config)
+    }
+}
+
 /// A wrapper around PathBuf to provide helper methods for accessing data files.
 #[derive(Clone)]
 pub struct DataStore(PathBuf);
@@ -89,10 +97,4 @@ pub struct SrvConfig {
 #[derive(Deserialize)]
 pub struct Backup {
     pub dir: PathBuf,
-}
-
-pub fn load(path: &Path) -> Result<Config, ConfigError> {
-    let contents = fs::read_to_string(path)?;
-    let config: Config = toml::from_str(&contents)?;
-    Ok(config)
 }

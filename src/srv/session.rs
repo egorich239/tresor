@@ -9,7 +9,7 @@ use crate::{
     api::{
         SignedMessage,
         error::{ApiError, ApiResult, VerifyStatusApiExt},
-        session::{SessionRequest, SessionResponsePayload},
+        session::{SessionEncKey, SessionRequest, SessionResponsePayload},
     },
     config::SrvConfig,
     model::Model,
@@ -29,7 +29,8 @@ pub async fn start_session(
     req.verify(&identity).to_api_result()?;
     let (srv_ident, srv_cert) = model.fetch_server_identity_for(now, &identity).await?;
 
-    let (session_id, enc_key) = model
+    let enc_key = SessionEncKey::generate();
+    let session_id = model
         .register_session(
             now,
             cfg.max_session_duration,

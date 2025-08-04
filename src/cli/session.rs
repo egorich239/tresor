@@ -1,6 +1,7 @@
 use crate::{
     age::RecepientStr,
     api::{
+        error::ApiError,
         message::{SignedMessage, VerifyStatus},
         session::{Nonce, SessionEncKey, SessionId, SessionRequestPayload, SessionResponse},
     },
@@ -10,14 +11,15 @@ use crate::{
 use reqwest::blocking::Client;
 use std::io::Read;
 
+#[derive(Debug)]
 pub struct Session {
     id: SessionId,
     enc_key: SessionEncKey, // Placeholder for the actual symmetric key type
 }
 
-pub fn request_session<S: SigningIdentity>(
+pub fn request_session(
     client: &Client,
-    signer: &S,
+    signer: &dyn SigningIdentity,
     server_url: &str,
 ) -> ClientResult<Session> {
     // 1. Generate an ephemeral age identity
@@ -38,8 +40,14 @@ pub fn request_session<S: SigningIdentity>(
     let response = client
         .post(format!("{server_url}/session"))
         .json(&request)
-        .send()?
-        .bytes()?;
+        .send()?;
+
+    if !response.status().is_success() {
+        let err: ApiError = response.json()?;
+        return Err(ClientError::ApiError(err));
+    }
+
+    let response = response.bytes()?;
 
     // 5. Decrypt the response with the ephemeral age key
     let decryptor =

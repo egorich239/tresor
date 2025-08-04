@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::{
     age::RecepientStr,
     api::{ServerCertificate, SignedMessage},
@@ -14,6 +16,12 @@ pub struct RandomBytes<const N: usize>([u8; N]);
 impl<const N: usize> Default for RandomBytes<N> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<const N: usize> fmt::Debug for RandomBytes<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RandomBytes({})", self.to_hex())
     }
 }
 
@@ -64,6 +72,12 @@ impl SessionEncKey {
     }
     pub fn to_hex(&self) -> String {
         self.0.to_hex()
+    }
+}
+
+impl fmt::Debug for SessionEncKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SessionEncKey({})", self.to_hex())
     }
 }
 

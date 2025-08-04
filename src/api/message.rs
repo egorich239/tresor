@@ -23,7 +23,7 @@ pub struct MessageSignature(Signature);
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SignedMessage<P: Payload> {
     payload: P,
-    signature: Signature,
+    signature: MessageSignature,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,12 +33,9 @@ pub enum VerifyStatus {
 }
 
 impl<P: Payload> SignedMessage<P> {
-    pub fn new(payload: P, identity: &impl SigningIdentity) -> SignatureResult<Self> {
-        let sig = identity.sign_prehashed(Self::_prehash(&payload))?;
-        Ok(Self {
-            payload,
-            signature: sig,
-        })
+    pub fn new(payload: P, identity: &dyn SigningIdentity) -> SignatureResult<Self> {
+        let signature = MessageSignature(identity.sign_prehashed(Self::_prehash(&payload))?);
+        Ok(Self { payload, signature })
     }
 
     pub fn verify(&self, identity: &VerifyingIdentity) -> VerifyStatus {
@@ -50,7 +47,7 @@ impl<P: Payload> SignedMessage<P> {
     }
 
     fn signature(&self) -> &Signature {
-        &self.signature
+        &self.signature.0
     }
 
     pub fn payload(&self) -> &P {
