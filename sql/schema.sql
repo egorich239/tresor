@@ -23,6 +23,11 @@ CREATE TABLE sessions (
     -- stored.
     session_id TEXT NOT NULL UNIQUE,
 
+    -- Nonce used by the client during session establishment.
+    --
+    -- Unique constraint is used to prevent replays.
+    nonce TEXT NOT NULL UNIQUE,
+
     -- These are logically foreign keys to identities(id), but the schema constraint
     -- is removed to break the circular dependency.
     server_id INTEGER NOT NULL,

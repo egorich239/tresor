@@ -34,6 +34,7 @@ pub async fn start_session(
         .register_session(
             now,
             cfg.max_session_duration,
+            req.payload().nonce.clone(),
             &identity,
             &srv_ident.verifying_identity(),
         )

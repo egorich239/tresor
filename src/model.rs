@@ -2,7 +2,7 @@ use crate::{
     api::{
         ServerCertificate, ServerIdentityClaim,
         error::{ApiError, ApiResult},
-        session::SessionId,
+        session::{Nonce, SessionId},
     },
     config::{DataStore, Srv},
     identity::{IdentityRole, SignatureError, SoftwareIdentity, VerifyingIdentity},
@@ -212,28 +212,40 @@ impl Model {
         &self,
         now: DateTime<Utc>,
         duration: Duration,
+        nonce: Nonce,
         cli_ident: &VerifyingIdentity,
         srv_ident: &VerifyingIdentity,
     ) -> ApiResult<SessionId> {
         let session_id = SessionId::new();
 
         sqlx::query(
-            "INSERT INTO sessions (session_id, client_id, server_id, created_at, expires_at)
+            "INSERT INTO sessions (session_id, nonce, client_id, server_id, created_at, expires_at)
              VALUES (
                 ?1, 
-                (SELECT id FROM identities WHERE public_key = ?2 AND role IN ('admin', 'reader')),
-                (SELECT id FROM identities WHERE public_key = ?3 AND role = 'server'),
-                ?4, ?5)",
+                ?2,
+                (SELECT id FROM identities WHERE public_key = ?3 AND role IN ('admin', 'reader')),
+                (SELECT id FROM identities WHERE public_key = ?4 AND role = 'server'),
+                ?5, ?6)",
         )
         .bind(session_id.to_hex())
+        .bind(nonce.to_hex())
         .bind(cli_ident.hex())
         .bind(srv_ident.hex())
         .bind(now.to_rfc3339())
         .bind((now + duration).to_rfc3339())
         .execute(&self.0.pool)
         .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
+        .map_err(|e| Self::_conflict_as(e, ApiError::BadRequest))?;
 
         Ok(session_id)
+    }
+
+    pub fn _conflict_as(e: sqlx::Error, err: ApiError) -> ApiError {
+        if let sqlx::Error::Database(e) = &e {
+            if e.is_unique_violation() {
+                return err;
+            }
+        }
+        ApiError::Internal(e.to_string())
     }
 }
