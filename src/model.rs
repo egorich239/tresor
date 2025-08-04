@@ -6,7 +6,6 @@ use crate::{
     config::{DataStore, Srv},
     identity::{
         IdentityIoError, IdentityRole, ServerCertificate, SoftwareIdentity, VerifyingIdentity,
-        VerifyingKeyHex,
     },
 };
 use chrono::{DateTime, Utc};
@@ -135,7 +134,11 @@ impl Model {
         Ok(())
     }
 
-    pub async fn check_identity(&self, now: DateTime<Utc>, key: &VerifyingKeyHex) -> ApiResult<()> {
+    pub async fn check_identity(
+        &self,
+        now: DateTime<Utc>,
+        key: &VerifyingIdentity,
+    ) -> ApiResult<()> {
         sqlx::query(
             "
             SELECT 1
@@ -175,8 +178,7 @@ impl Model {
             if pk.is_err() {
                 continue;
             }
-            let pk: VerifyingKeyHex = pk.unwrap();
-            let pk = VerifyingIdentity::new(pk.key().clone());
+            let pk = pk.unwrap();
             let cert = ServerCertificate::load(&self.0.data.server_certs_dir(), &pk);
             if cert.is_err() {
                 continue;

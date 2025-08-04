@@ -1,6 +1,6 @@
 use crate::{
     age::RecepientStr,
-    identity::{ServerCertificate, SignedMessage, VerifyingKeyHex},
+    identity::{ServerCertificate, SignedMessage, VerifyingIdentity},
 };
 use rand::Rng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -43,7 +43,7 @@ pub type SessionId = RandomBytes<16>;
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SessionRequestPayload {
     pub nonce: Nonce,
-    pub identity: VerifyingKeyHex,
+    pub identity: VerifyingIdentity,
     pub recepient: RecepientStr,
 }
 

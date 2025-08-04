@@ -14,6 +14,16 @@ use std::{
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+#[error("signature failed: {0}")]
+pub struct SignatureError(String);
+
+type SignatureResult<T> = std::result::Result<T, SignatureError>;
+
+pub trait SigningIdentity {
+    fn sign_prehashed(&self, prehashed: Sha512) -> SignatureResult<Signature>;
+}
+
+#[derive(Error, Debug)]
 pub enum IdentityIoError {
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -52,20 +62,6 @@ pub enum IdentityError {
     WrongIdentity,
 }
 
-#[derive(Error, Debug)]
-pub enum IdenitySignError {
-    #[error("wrong issuer: requested={requested:?}, signatory={signatory:?}")]
-    WrongIssuer {
-        requested: VerifyingKey,
-        signatory: VerifyingKey,
-    },
-}
-
-type SignResult<T> = std::result::Result<T, IdenitySignError>;
-
-#[derive(Debug, Clone)]
-pub struct SigningKeyHex(SigningKey);
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerifyStatus {
     Ok,
@@ -76,28 +72,11 @@ type Result<T> = std::result::Result<T, IdentityError>;
 
 /// An identity that possesses a private key and can create signatures.
 #[derive(Debug, Clone)]
-pub struct SoftwareIdentity(SigningKeyHex);
+pub struct SoftwareIdentity(SigningKey);
 
-impl SoftwareIdentity {
-    pub fn new(key: SigningKey) -> Self {
-        Self(SigningKeyHex(key))
-    }
-
-    pub fn key(&self) -> &SigningKey {
-        &self.0.0
-    }
-
-    pub fn verifying_identity(&self) -> VerifyingIdentity {
-        VerifyingIdentity::new(self.key().verifying_key())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VerifyingKeyHex(VerifyingKey);
-
-impl From<VerifyingKeyHex> for VerifyingIdentity {
-    fn from(key: VerifyingKeyHex) -> Self {
-        VerifyingIdentity::new(key.0)
+impl SigningIdentity for SoftwareIdentity {
+    fn sign_prehashed(&self, prehashed: Sha512) -> SignatureResult<Signature> {
+        self.sign_prehashed(prehashed)
     }
 }
 
@@ -106,21 +85,7 @@ struct SignatureHex(Signature);
 
 /// An identity whose public key and certificate are known, used for verification.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct VerifyingIdentity(VerifyingKeyHex);
-
-impl VerifyingIdentity {
-    pub fn new(key: VerifyingKey) -> Self {
-        Self(VerifyingKeyHex(key))
-    }
-
-    pub fn hex(&self) -> String {
-        hex::encode(self.0.0.as_bytes())
-    }
-
-    fn key(&self) -> &VerifyingKey {
-        self.0.key()
-    }
-}
+pub struct VerifyingIdentity(VerifyingKey);
 
 pub trait Payload: Clone {
     type Bytes: AsRef<[u8]>;
@@ -143,8 +108,8 @@ pub struct SignedMessage<P: Payload> {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ServerIdentityClaim {
-    pub server_pubkey: VerifyingKeyHex,
-    pub issuer_pubkey: VerifyingKeyHex,
+    pub server_pubkey: VerifyingIdentity,
+    pub issuer_pubkey: VerifyingIdentity,
     pub issued_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
 }
@@ -227,6 +192,17 @@ impl Display for IdentityRole {
 }
 
 impl SoftwareIdentity {
+    pub fn new(key: SigningKey) -> Self {
+        Self(key)
+    }
+
+    pub fn verifying_identity(&self) -> VerifyingIdentity {
+        VerifyingIdentity::new(self.key().verifying_key())
+    }
+
+    fn key(&self) -> &SigningKey {
+        &self.0
+    }
     pub fn generate() -> Self {
         let mut rng = OsRng;
         let keypair = SigningKey::generate(&mut rng);
@@ -255,6 +231,17 @@ impl SoftwareIdentity {
 }
 
 impl VerifyingIdentity {
+    pub fn new(key: VerifyingKey) -> Self {
+        Self(key)
+    }
+
+    pub fn hex(&self) -> String {
+        hex::encode(self.0.as_bytes())
+    }
+
+    fn key(&self) -> &VerifyingKey {
+        &self.0
+    }
     pub fn verify_prehashed(&self, digest: Sha512, signature: &Signature) -> VerifyStatus {
         match self.key().verify_prehashed(digest, None, signature) {
             Ok(_) => VerifyStatus::Ok,
@@ -297,38 +284,18 @@ fn _filename(dir: &Path, subject_pubkey: &VerifyingKey, ext: &str) -> PathBuf {
         .with_extension(ext)
 }
 
-impl VerifyingKeyHex {
-    pub fn new(key: VerifyingKey) -> Self {
-        Self(key)
-    }
-
-    pub fn key(&self) -> &VerifyingKey {
-        &self.0
-    }
-
-    pub fn hex(&self) -> String {
-        hex::encode(self.0.as_bytes())
-    }
-}
-
-impl From<VerifyingKey> for VerifyingKeyHex {
-    fn from(key: VerifyingKey) -> Self {
-        VerifyingKeyHex::new(key)
-    }
-}
-
-impl TryFrom<&str> for VerifyingKeyHex {
+impl TryFrom<&str> for VerifyingIdentity {
     type Error = IdentityIoError;
     fn try_from(s: &str) -> std::result::Result<Self, Self::Error> {
         let bytes = hex::decode(s).map_err(|_| IdentityIoError::BogusKey)?;
         let key_bytes = &bytes.try_into().map_err(|_| IdentityIoError::BogusKey)?;
-        Ok(VerifyingKeyHex::new(
+        Ok(VerifyingIdentity::new(
             VerifyingKey::from_bytes(key_bytes).map_err(|_| IdentityIoError::BogusKey)?,
         ))
     }
 }
 
-impl Serialize for VerifyingKeyHex {
+impl Serialize for VerifyingIdentity {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -337,7 +304,7 @@ impl Serialize for VerifyingKeyHex {
     }
 }
 
-impl<'de> Deserialize<'de> for VerifyingKeyHex {
+impl<'de> Deserialize<'de> for VerifyingIdentity {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -348,7 +315,7 @@ impl<'de> Deserialize<'de> for VerifyingKeyHex {
             .try_into()
             .map_err(|_| serde::de::Error::custom("invalid key length"))?;
         VerifyingKey::from_bytes(key_bytes)
-            .map(VerifyingKeyHex)
+            .map(VerifyingIdentity::new)
             .map_err(serde::de::Error::custom)
     }
 }
@@ -389,21 +356,5 @@ impl<'de> Deserialize<'de> for SignatureHex {
             .try_into()
             .map_err(|_| serde::de::Error::custom("invalid key length"))?;
         Ok(Signature::from_bytes(sig_bytes).into())
-    }
-}
-
-#[derive(Error, Debug)]
-#[error("signature failed: {0}")]
-pub struct SignatureError(String);
-
-type SignatureResult<T> = std::result::Result<T, SignatureError>;
-
-pub trait SigningIdentity {
-    fn sign_prehashed(&self, prehashed: Sha512) -> SignatureResult<Signature>;
-}
-
-impl SigningIdentity for SoftwareIdentity {
-    fn sign_prehashed(&self, prehashed: Sha512) -> SignatureResult<Signature> {
-        self.sign_prehashed(prehashed)
     }
 }
