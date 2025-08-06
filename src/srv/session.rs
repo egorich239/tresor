@@ -1,7 +1,8 @@
 use axum::{
     Json,
     body::Body,
-    extract::{FromRequest, Request},
+    extract::{FromRequest, FromRequestParts, Request},
+    http::request::Parts,
 };
 use chrono::{DateTime, Utc};
 
@@ -9,7 +10,7 @@ use crate::{
     api::{
         SignedMessage,
         error::{ApiError, ApiResult, VerifyStatusApiExt},
-        session::{SessionRequest, SessionResponsePayload},
+        session::{SessionId, SessionRequest, SessionResponsePayload},
     },
     config::SrvConfig,
     model::Model,
@@ -51,4 +52,27 @@ pub async fn start_session(
     let bytes = serde_json::to_vec(&response)
         .map_err(|e| ApiError::Internal(format!("failed to serialize: {e}")))?;
     Ok(req.payload().recepient.encrypt(&bytes))
+}
+
+// Custom header type for `X-Tresor-Session-Id`
+pub struct XTresorSessionId(pub SessionId);
+
+impl<S> FromRequestParts<S> for XTresorSessionId
+where
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        let session_id = parts
+            .headers
+            .get("X-Tresor-Session-Id")
+            .ok_or(ApiError::Unauthorized)?;
+        let session_id = session_id.to_str().map_err(|_| ApiError::Unauthorized)?;
+        let session_id = session_id.try_into().map_err(|_| ApiError::Unauthorized)?;
+        Ok(XTresorSessionId(session_id))
+    }
 }

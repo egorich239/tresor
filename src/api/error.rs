@@ -12,6 +12,9 @@ pub enum ApiError {
     #[error("invalid signature")]
     InvalidSignature,
 
+    #[error("unauthorized")]
+    Unauthorized,
+
     #[error("invalid identity")]
     InvalidIdentity,
 
@@ -30,6 +33,7 @@ impl ApiError {
         match self {
             ApiError::BadRequest => StatusCode::BAD_REQUEST,
             ApiError::InvalidSignature => StatusCode::FORBIDDEN,
+            ApiError::Unauthorized => StatusCode::UNAUTHORIZED,
             ApiError::InvalidIdentity => StatusCode::FORBIDDEN,
             ApiError::InvalidServerIdentity => StatusCode::FORBIDDEN,
             ApiError::TransientError => StatusCode::SERVICE_UNAVAILABLE,
@@ -38,6 +42,14 @@ impl ApiError {
     }
 
     pub fn sanitize(&mut self) {}
+}
+
+impl axum::response::IntoResponse for ApiError {
+    fn into_response(self) -> axum::response::Response {
+        let status_code = self.status_code();
+        let body = serde_json::to_string(&self).unwrap_or_else(|_| "Internal server error".to_string());
+        (status_code, body).into_response()
+    }
 }
 
 pub type ApiResult<T> = std::result::Result<T, ApiError>;

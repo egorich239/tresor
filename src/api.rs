@@ -1,7 +1,10 @@
+pub mod bytes;
 pub mod error;
 pub mod message;
+pub mod secret;
 pub mod server;
 pub mod session;
 
+pub use bytes::*;
 pub use message::*;
 pub use server::*;

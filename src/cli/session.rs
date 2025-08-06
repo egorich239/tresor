@@ -28,7 +28,7 @@ pub fn request_session(
 
     // 2. Construct the request payload
     let payload = SessionRequestPayload {
-        nonce: Nonce::new(),
+        nonce: Nonce::generate(),
         identity: signer.verifying_identity(),
         recepient,
     };

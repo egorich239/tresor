@@ -226,7 +226,7 @@ impl Model {
         cli_ident: &VerifyingIdentity,
         srv_ident: &VerifyingIdentity,
     ) -> ApiResult<(SessionId, SessionEncKey)> {
-        let session_id = SessionId::new();
+        let session_id = SessionId::generate();
         let enc_key = SessionEncKey::generate();
 
         sqlx::query(
