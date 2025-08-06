@@ -6,37 +6,76 @@ use crate::{
         session::{Nonce, SessionEncKey, SessionId, SessionRequestPayload, SessionResponse},
     },
     cli::{ClientError, ClientResult},
+    enc,
     identity::SigningIdentity,
 };
 use reqwest::blocking::Client;
+use serde::{Serialize, de::DeserializeOwned};
 use std::io::Read;
 
 #[derive(Debug)]
-pub struct Session {
+pub struct Session<'c> {
     id: SessionId,
-    enc_key: SessionEncKey, // Placeholder for the actual symmetric key type
+    enc_key: SessionEncKey,
+    server_url: String,
+    client: &'c Client,
 }
 
-pub fn request_session(
-    client: &Client,
+impl<'c> Session<'c> {
+    pub fn query<Q: Serialize, A: DeserializeOwned>(&self, request: Q) -> ClientResult<A> {
+        let payload_bytes = serde_json::to_vec(&request).map_err(ClientError::internal)?;
+
+        let (ciphertext, nonce) =
+            enc::encrypt(&payload_bytes, &self.enc_key).map_err(ClientError::internal)?;
+
+        let mut request_body = Vec::new();
+        request_body.extend_from_slice(nonce.as_slice());
+        request_body.extend_from_slice(&ciphertext);
+
+        let response = self
+            .client
+            .post(format!("{}/secret", self.server_url))
+            .header("X-Tresor-Session-Id", self.id.to_hex())
+            .body(request_body)
+            .send()?;
+
+        if !response.status().is_success() {
+            let err: ApiError = response.json()?;
+            return Err(err.into());
+        }
+
+        let response_body = response.bytes()?.to_vec();
+        if response_body.len() < 12 {
+            return Err(ClientError::MalformedResponse);
+        }
+        let (nonce, ciphertext) = response_body.split_at(12);
+        let nonce = aes_gcm::Nonce::from_slice(nonce);
+
+        let response = enc::decrypt(ciphertext, nonce, &self.enc_key)
+            .ok_or(ClientError::MalformedResponse)?;
+
+        let response =
+            serde_json::from_slice(&response).map_err(|_| ClientError::MalformedResponse)?;
+
+        Ok(response)
+    }
+}
+
+pub fn request_session<'c>(
+    client: &'c Client,
     signer: &dyn SigningIdentity,
     server_url: &str,
-) -> ClientResult<Session> {
-    // 1. Generate an ephemeral age identity
+) -> ClientResult<Session<'c>> {
     let age_identity = age::x25519::Identity::generate();
     let recepient = RecepientStr::new(age_identity.to_public());
 
-    // 2. Construct the request payload
     let payload = SessionRequestPayload {
         nonce: Nonce::generate(),
         identity: signer.verifying_identity(),
         recepient,
     };
 
-    // 3. Sign the payload to create the request message
     let request = SignedMessage::new(payload, signer)?;
-
-    // 4. Send the request to the server
     let response = client
         .post(format!("{server_url}/session"))
         .json(&request)
@@ -73,5 +112,7 @@ pub fn request_session(
     Ok(Session {
         id: session_payload.session_id.clone(),
         enc_key: session_payload.enc_key.clone(),
+        server_url: server_url.to_string(),
+        client,
     })
 }
