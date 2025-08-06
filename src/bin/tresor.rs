@@ -1,4 +1,4 @@
-use std::{fs, io, path::PathBuf};
+use std::{io, path::PathBuf};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -36,15 +36,7 @@ enum Identity {
 impl Identity {
     pub fn new(args: IdentityArgs) -> ClientResult<Identity> {
         let config = Config::load(args.root.as_ref().unwrap())?;
-        let identities_dir = config.srv.data.identities_dir();
-        let path = fs::canonicalize(config.srv.data.root_key_symlink()).map_err(Self::_rce)?;
-        let stem = path
-            .file_stem()
-            .ok_or_else(|| Self::_rce(io::Error::other("cannot determine root identity")))?
-            .to_str()
-            .unwrap();
-        let stem = stem.try_into().map_err(Self::_rce)?;
-        let root = SoftwareIdentity::load(&identities_dir, &stem).map_err(Self::_rce)?;
+        let root = SoftwareIdentity::load(&config.srv.data.root_key_symlink())?;
         Ok(Identity::Software {
             identity: root,
             port: config.srv.port,

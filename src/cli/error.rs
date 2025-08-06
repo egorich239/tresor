@@ -1,3 +1,5 @@
+use std::io;
+
 use thiserror::Error;
 
 use crate::{api::error::ApiError, config::ConfigError, identity::SignatureError};
@@ -21,6 +23,9 @@ pub enum ClientError {
 
     #[error("root config error")]
     RootConfigError(#[from] ConfigError),
+
+    #[error(transparent)]
+    IoError(#[from] io::Error),
 }
 
 pub type ClientResult<T> = Result<T, ClientError>;

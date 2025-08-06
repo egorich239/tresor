@@ -9,7 +9,7 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use sqlx::{Row, SqlitePool, sqlite::SqliteConnectOptions};
-use std::{collections::HashMap, fs, sync::Arc, time::Duration};
+use std::{collections::HashMap, fs, path::PathBuf, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::RwLock;
 
@@ -80,12 +80,14 @@ impl Model {
         let rot = cfg.config.sw_identity_rot_period;
 
         let root = SoftwareIdentity::generate();
-        let root_key_path = root.save(&cfg.data.identities_dir())?;
+        let root_key_path = Self::_key_file(&cfg.data, &root.verifying_identity());
+        root.save(&root_key_path)?;
         std::os::unix::fs::symlink(&root_key_path, cfg.data.root_key_symlink())?;
         fs::create_dir(cfg.data.server_cert_dir(&root.verifying_identity()))?;
 
         let srv = SoftwareIdentity::generate();
-        let srv_key_path = srv.save(&cfg.data.identities_dir())?;
+        let srv_key_path = Self::_key_file(&cfg.data, &srv.verifying_identity());
+        srv.save(&srv_key_path)?;
         std::os::unix::fs::symlink(&srv_key_path, cfg.data.srv_key_symlink())?;
 
         ServerCertificate::new(
@@ -201,11 +203,16 @@ impl Model {
             if cert.check(now, &pk, client).is_err() {
                 continue;
             }
-            let srv_ident = SoftwareIdentity::load(&self.0.data.identities_dir(), cert.identity());
+            let file = Self::_key_file(&self.0.data, cert.identity());
+            let srv_ident = SoftwareIdentity::load(&file);
             if srv_ident.is_err() {
                 continue;
             }
-            return Ok((srv_ident.unwrap(), cert));
+            let srv_ident = srv_ident.unwrap();
+            if srv_ident.verifying_identity() != pk {
+                continue;
+            }
+            return Ok((srv_ident, cert));
         }
 
         Err(ApiError::InvalidServerIdentity)
@@ -255,12 +262,17 @@ impl Model {
         Ok((session_id, enc_key))
     }
 
-    pub fn _conflict_as(e: sqlx::Error, err: ApiError) -> ApiError {
+    fn _conflict_as(e: sqlx::Error, err: ApiError) -> ApiError {
         if let sqlx::Error::Database(e) = &e {
             if e.is_unique_violation() {
                 return err;
             }
         }
         ApiError::Internal(e.to_string())
+    }
+
+    fn _key_file(data: &DataStore, identity: &VerifyingIdentity) -> PathBuf {
+        data.identities_dir()
+            .join(DataStore::file_by_identity(identity, "key"))
     }
 }
