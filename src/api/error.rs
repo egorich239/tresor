@@ -1,3 +1,5 @@
+use std::fmt;
+
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -26,6 +28,13 @@ pub enum ApiError {
 
     #[error("internal error: {0}")]
     Internal(String),
+
+    // Secrets API
+    #[error("duplicate secret")]
+    DuplicateSecret,
+
+    #[error("unknown secret")]
+    UnknownSecret,
 }
 
 impl ApiError {
@@ -37,17 +46,24 @@ impl ApiError {
             ApiError::InvalidIdentity => StatusCode::FORBIDDEN,
             ApiError::InvalidServerIdentity => StatusCode::FORBIDDEN,
             ApiError::TransientError => StatusCode::SERVICE_UNAVAILABLE,
+            ApiError::DuplicateSecret => StatusCode::CONFLICT,
+            ApiError::UnknownSecret => StatusCode::NOT_FOUND,
             ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
     pub fn sanitize(&mut self) {}
+
+    pub fn internal(e: impl fmt::Display) -> Self {
+        ApiError::Internal(e.to_string())
+    }
 }
 
 impl axum::response::IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let status_code = self.status_code();
-        let body = serde_json::to_string(&self).unwrap_or_else(|_| "Internal server error".to_string());
+        let body =
+            serde_json::to_string(&self).unwrap_or_else(|_| "Internal server error".to_string());
         (status_code, body).into_response()
     }
 }

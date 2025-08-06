@@ -8,7 +8,7 @@ use crate::{
     identity::{IdentityRole, SignatureError, SoftwareIdentity, VerifyingIdentity},
 };
 use chrono::{DateTime, Utc};
-use sqlx::{Row, SqlitePool, sqlite::SqliteConnectOptions};
+use sqlx::{Row, Sqlite, SqlitePool, Transaction, sqlite::SqliteConnectOptions};
 use std::{collections::HashMap, fs, path::PathBuf, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::RwLock;
@@ -262,6 +262,88 @@ impl Model {
         Ok((session_id, enc_key))
     }
 
+    pub async fn get_session_key(&self, session_id: &SessionId) -> Option<SessionEncKey> {
+        self.0.session_keys.read().await.get(session_id).cloned()
+    }
+
+    pub async fn secret_add(&self, name: &str, value: &str, description: &str) -> ApiResult<()> {
+        if description.is_empty() {
+            return Err(ApiError::BadRequest);
+        }
+
+        let (mut tx, state) = self._secret_query_prelude(name).await?;
+        if state == SecretState::Exists {
+            return Err(ApiError::DuplicateSecret);
+        }
+
+        sqlx::query("INSERT INTO secrets (key, value, description) VALUES (?1, ?2, ?3)")
+            .bind(name)
+            .bind(value)
+            .bind(description)
+            .execute(&mut *tx)
+            .await
+            .map_err(Self::_internal)?;
+        tx.commit().await.map_err(Self::_internal)?;
+        Ok(())
+    }
+
+    pub async fn secret_update(&self, name: &str, value: &str) -> ApiResult<()> {
+        let (mut tx, state) = self._secret_query_prelude(name).await?;
+        if state != SecretState::Exists {
+            return Err(ApiError::UnknownSecret);
+        }
+
+        sqlx::query("INSERT INTO secrets (key, value) VALUES (?1, ?2)")
+            .bind(name)
+            .bind(value)
+            .execute(&mut *tx)
+            .await
+            .map_err(Self::_internal)?;
+        tx.commit().await.map_err(Self::_internal)?;
+        Ok(())
+    }
+
+    pub async fn secret_delete(&self, name: &str) -> ApiResult<()> {
+        let (mut tx, state) = self._secret_query_prelude(name).await?;
+        if state != SecretState::Exists {
+            return Err(ApiError::UnknownSecret);
+        }
+
+        sqlx::query("INSERT INTO secrets (key) VALUES (?1)")
+            .bind(name)
+            .execute(&mut *tx)
+            .await
+            .map_err(Self::_internal)?;
+        tx.commit().await.map_err(Self::_internal)?;
+        Ok(())
+    }
+
+    async fn _secret_query_prelude(
+        &self,
+        name: &str,
+    ) -> ApiResult<(Transaction<'_, Sqlite>, SecretState)> {
+        if name.is_empty() {
+            return Err(ApiError::BadRequest);
+        }
+
+        let mut tx = self.0.pool.begin().await.map_err(Self::_internal)?;
+        let row = sqlx::query("SELECT value FROM secrets WHERE name = ?1 ORDER BY id DESC LIMIT 1")
+            .bind(name)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
+        match row {
+            None => Ok((tx, SecretState::NotExists)),
+            Some(row) => {
+                let value: Option<String> = row.get("value");
+                match value {
+                    None => Ok((tx, SecretState::Deleted)),
+                    Some(_) => Ok((tx, SecretState::Exists)),
+                }
+            }
+        }
+    }
+
     fn _conflict_as(e: sqlx::Error, err: ApiError) -> ApiError {
         if let sqlx::Error::Database(e) = &e {
             if e.is_unique_violation() {
@@ -275,4 +357,15 @@ impl Model {
         data.identities_dir()
             .join(DataStore::file_by_identity(identity, "key"))
     }
+
+    fn _internal(e: sqlx::Error) -> ApiError {
+        ApiError::Internal(e.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SecretState {
+    NotExists,
+    Exists,
+    Deleted,
 }

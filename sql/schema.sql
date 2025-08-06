@@ -72,6 +72,7 @@ CREATE TABLE secrets (
     id INTEGER PRIMARY KEY,
     "key" TEXT NOT NULL,
     value BLOB, -- A NULL value indicates the key has been deleted.
+    description TEXT,
 
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
     created_session_id INTEGER NOT NULL REFERENCES sessions(id)

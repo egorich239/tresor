@@ -5,7 +5,11 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "action", rename_all = "camelCase")]
 pub enum SecretRequest {
     /// Create a new secret. Fails if it already exists.
-    Add { name: String, value: String },
+    Add {
+        name: String,
+        value: String,
+        description: String,
+    },
     /// Update an existing secret. Fails if it does not exist.
     Update { name: String, value: String },
     /// Delete a secret. Fails if it does not exist.
