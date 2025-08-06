@@ -3,8 +3,6 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::io::Write;
 use std::str::FromStr;
 
-use crate::api::Payload;
-
 #[derive(Debug, Clone)]
 pub struct RecepientStr(Recipient);
 
@@ -21,9 +19,7 @@ impl RecepientStr {
     ///
     /// NOTE: As far as I can tell given a valid single recepient, we don't
     /// expect any runtime failures.
-    pub fn encrypt<P: Payload>(&self, payload: P) -> Vec<u8> {
-        let payload = payload.to_bytes();
-
+    pub fn encrypt(&self, payload: &[u8]) -> Vec<u8> {
         let recepient: Box<dyn age::Recipient> = Box::new(self.0.clone());
         let recepients = vec![recepient.as_ref()];
         let encryptor = Encryptor::with_recipients(recepients.into_iter()).unwrap();

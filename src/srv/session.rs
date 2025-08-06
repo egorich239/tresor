@@ -48,5 +48,7 @@ pub async fn start_session(
 
     let response = SignedMessage::new(response_payload, &srv_ident)
         .map_err(|_| ApiError::Internal("failed to sign response".to_string()))?;
-    Ok(req.payload().recepient.encrypt(response))
+    let bytes = serde_json::to_vec(&response)
+        .map_err(|e| ApiError::Internal(format!("failed to serialize: {e}")))?;
+    Ok(req.payload().recepient.encrypt(&bytes))
 }

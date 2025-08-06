@@ -14,6 +14,12 @@ pub struct SignatureError(String);
 
 pub type SignatureResult<T> = std::result::Result<T, SignatureError>;
 
+impl SignatureError {
+    pub fn new(e: impl Display) -> Self {
+        Self(e.to_string())
+    }
+}
+
 pub trait SigningIdentity {
     fn verifying_identity(&self) -> VerifyingIdentity;
 

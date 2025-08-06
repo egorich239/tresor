@@ -41,6 +41,14 @@ impl<const N: usize> RandomBytes<N> {
     pub fn to_hex(&self) -> String {
         hex::encode(self.0)
     }
+
+    pub fn as_bytes(&self) -> &[u8; N] {
+        &self.0
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.0
+    }
 }
 
 #[derive(Clone)]
@@ -72,6 +80,12 @@ impl SessionEncKey {
     }
     pub fn to_hex(&self) -> String {
         self.0.to_hex()
+    }
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        self.0.as_bytes()
+    }
+    pub fn as_slice(&self) -> &[u8] {
+        self.0.as_slice()
     }
 }
 

@@ -2,26 +2,13 @@ use ed25519_dalek::Signature;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha512};
 
-use crate::identity::{SignatureResult, SigningIdentity, VerifyingIdentity};
-
-pub trait Payload: Clone {
-    type Bytes: AsRef<[u8]>;
-
-    fn to_bytes(&self) -> Self::Bytes;
-}
-
-impl<T: Serialize + Clone> Payload for T {
-    type Bytes = Vec<u8>;
-    fn to_bytes(&self) -> Self::Bytes {
-        serde_json::to_vec(self).unwrap()
-    }
-}
+use crate::identity::{SignatureError, SignatureResult, SigningIdentity, VerifyingIdentity};
 
 #[derive(Debug, Clone)]
 pub struct MessageSignature(Signature);
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SignedMessage<P: Payload> {
+pub struct SignedMessage<P: Serialize + Clone> {
     payload: P,
     signature: MessageSignature,
 }
@@ -32,17 +19,22 @@ pub enum VerifyStatus {
     Failed,
 }
 
-impl<P: Payload> SignedMessage<P> {
+impl<P: Serialize + Clone> SignedMessage<P> {
     pub fn new(payload: P, identity: &dyn SigningIdentity) -> SignatureResult<Self> {
-        let signature = MessageSignature(identity.sign_prehashed(Self::_prehash(&payload))?);
+        let signature = MessageSignature(identity.sign_prehashed(Self::_prehash(&payload)?)?);
         Ok(Self { payload, signature })
     }
 
     pub fn verify(&self, identity: &VerifyingIdentity) -> VerifyStatus {
-        if identity.verify_prehashed(Self::_prehash(&self.payload), self.signature()) {
-            VerifyStatus::Ok
-        } else {
-            VerifyStatus::Failed
+        let prehash = Self::_prehash(&self.payload);
+        if prehash.is_err() {
+            return VerifyStatus::Failed;
+        }
+
+        let prehash = prehash.unwrap();
+        match identity.verify_prehashed(prehash, self.signature()) {
+            true => VerifyStatus::Ok,
+            false => VerifyStatus::Failed,
         }
     }
 
@@ -54,11 +46,11 @@ impl<P: Payload> SignedMessage<P> {
         &self.payload
     }
 
-    fn _prehash(payload: &P) -> Sha512 {
-        let bytes = payload.to_bytes();
+    fn _prehash(payload: &P) -> SignatureResult<Sha512> {
+        let bytes = serde_json::to_vec(payload).map_err(SignatureError::new)?;
         let mut prehashed = Sha512::new();
         prehashed.update(&bytes);
-        prehashed
+        Ok(prehashed)
     }
 }
 
