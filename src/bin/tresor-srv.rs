@@ -14,7 +14,7 @@ use tokio::net::TcpListener;
 use tresor::{
     config::{Config, SrvConfig},
     model::Model,
-    srv::session,
+    srv::{secret_handler, session},
 };
 
 // Extractor for getting the current timestamp.
@@ -135,6 +135,7 @@ async fn cmd_run(config: &Config) -> Result<()> {
     let app = Router::new()
         .route("/", get(|| async { "Hello, Tresor!" }))
         .route("/session", post(start_session_handler))
+        .route("/secret", post(secret_handler))
         .with_state((config.srv.config.clone(), model));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], config.srv.port));

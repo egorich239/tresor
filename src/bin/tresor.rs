@@ -4,7 +4,11 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use reqwest::blocking::Client;
 use tresor::{
-    cli::{ClientError, ClientResult, session::request_session},
+    cli::{
+        ClientError, ClientResult,
+        secret::{secret_add, secret_delete, secret_update},
+        session::request_session,
+    },
     config::{Config, ConfigError},
     identity::{SigningIdentity, SoftwareIdentity},
 };
@@ -55,8 +59,22 @@ impl Identity {
 }
 
 #[derive(Subcommand)]
+enum SecretAction {
+    Add,
+    Update,
+    Delete,
+}
+
+#[derive(Parser)]
+struct SecretCommands {
+    #[command(subcommand)]
+    action: SecretAction,
+}
+
+#[derive(Subcommand)]
 enum Commands {
     Ping,
+    Secret(SecretCommands),
 }
 
 fn main() -> Result<()> {
@@ -65,19 +83,32 @@ fn main() -> Result<()> {
     let identity = identity.build()?;
 
     let client = Client::new();
+    let server_url = format!("http://localhost:{port}");
+
     match cli.command {
         Commands::Ping => {
-            let session = request_session(
-                &client,
-                identity.as_ref(),
-                &format!("http://localhost:{port}"),
-            )?;
+            let session = request_session(&client, identity.as_ref(), &server_url)?;
             println!("Session: {session:?}");
         }
+        Commands::Secret(secret_cmd) => {
+            let session = request_session(&client, identity.as_ref(), &server_url)?;
+            let response = match secret_cmd.action {
+                SecretAction::Add => secret_add(
+                    &session,
+                    "dummy_name".to_string(),
+                    "dummy_value".to_string(),
+                    "dummy_description".to_string(),
+                ),
+                SecretAction::Update => secret_update(
+                    &session,
+                    "dummy_name".to_string(),
+                    "dummy_value".to_string(),
+                ),
+                SecretAction::Delete => secret_delete(&session, "dummy_name".to_string()),
+            };
+            println!("Server response: {response:?}");
+        }
     }
-
-    // Logic for client-side commands will be added here.
-    println!("Tresor CLI (client commands to be implemented)");
 
     Ok(())
 }

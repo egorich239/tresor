@@ -137,7 +137,7 @@ impl Model {
     ) -> ModelInitResult<()> {
         sqlx::query(
             "INSERT INTO identities (name, public_key, role, created_at, expires_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            VALUES (?1, ?2, ?3, ?4, ?5)",
         )
         .bind(name)
         .bind(identity.hex())
@@ -266,7 +266,13 @@ impl Model {
         self.0.session_keys.read().await.get(session_id).cloned()
     }
 
-    pub async fn secret_add(&self, name: &str, value: &str, description: &str) -> ApiResult<()> {
+    pub async fn secret_add(
+        &self,
+        session_id: &SessionId,
+        name: &str,
+        value: &str,
+        description: &str,
+    ) -> ApiResult<()> {
         if description.is_empty() {
             return Err(ApiError::BadRequest);
         }
@@ -276,41 +282,59 @@ impl Model {
             return Err(ApiError::DuplicateSecret);
         }
 
-        sqlx::query("INSERT INTO secrets (key, value, description) VALUES (?1, ?2, ?3)")
-            .bind(name)
-            .bind(value)
-            .bind(description)
-            .execute(&mut *tx)
-            .await
-            .map_err(Self::_internal)?;
+        sqlx::query(
+            "INSERT INTO secrets (key, value, description, created_session_id)
+             VALUES (?1, ?2, ?3, 
+                    (SELECT id FROM sessions WHERE session_id = ?4))",
+        )
+        .bind(name)
+        .bind(value)
+        .bind(description)
+        .bind(session_id.to_hex())
+        .execute(&mut *tx)
+        .await
+        .map_err(Self::_internal)?;
         tx.commit().await.map_err(Self::_internal)?;
         Ok(())
     }
 
-    pub async fn secret_update(&self, name: &str, value: &str) -> ApiResult<()> {
+    pub async fn secret_update(
+        &self,
+        session_id: &SessionId,
+        name: &str,
+        value: &str,
+    ) -> ApiResult<()> {
         let (mut tx, state) = self._secret_query_prelude(name).await?;
         if state != SecretState::Exists {
             return Err(ApiError::UnknownSecret);
         }
 
-        sqlx::query("INSERT INTO secrets (key, value) VALUES (?1, ?2)")
-            .bind(name)
-            .bind(value)
-            .execute(&mut *tx)
-            .await
-            .map_err(Self::_internal)?;
+        sqlx::query(
+            "INSERT INTO secrets (key, value, created_session_id) VALUES (?1, ?2, 
+                    (SELECT id FROM sessions WHERE session_id = ?3))",
+        )
+        .bind(name)
+        .bind(value)
+        .bind(session_id.to_hex())
+        .execute(&mut *tx)
+        .await
+        .map_err(Self::_internal)?;
         tx.commit().await.map_err(Self::_internal)?;
         Ok(())
     }
 
-    pub async fn secret_delete(&self, name: &str) -> ApiResult<()> {
+    pub async fn secret_delete(&self, session_id: &SessionId, name: &str) -> ApiResult<()> {
         let (mut tx, state) = self._secret_query_prelude(name).await?;
         if state != SecretState::Exists {
             return Err(ApiError::UnknownSecret);
         }
 
-        sqlx::query("INSERT INTO secrets (key) VALUES (?1)")
+        sqlx::query(
+            "INSERT INTO secrets (key, created_session_id) VALUES (?1, 
+                    (SELECT id FROM sessions WHERE session_id = ?2))",
+        )
             .bind(name)
+            .bind(session_id.to_hex())
             .execute(&mut *tx)
             .await
             .map_err(Self::_internal)?;
@@ -327,7 +351,7 @@ impl Model {
         }
 
         let mut tx = self.0.pool.begin().await.map_err(Self::_internal)?;
-        let row = sqlx::query("SELECT value FROM secrets WHERE name = ?1 ORDER BY id DESC LIMIT 1")
+        let row = sqlx::query("SELECT value FROM secrets WHERE key = ?1 ORDER BY id DESC LIMIT 1")
             .bind(name)
             .fetch_optional(&mut *tx)
             .await

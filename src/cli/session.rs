@@ -50,9 +50,11 @@ impl<'c> Session<'c> {
         }
         let (nonce, ciphertext) = response_body.split_at(12);
         let nonce = aes_gcm::Nonce::from_slice(nonce);
+        println!("got here");
 
         let response = enc::decrypt(ciphertext, nonce, &self.enc_key)
             .ok_or(ClientError::MalformedResponse)?;
+        println!("response: {response:?}");
 
         let response =
             serde_json::from_slice(&response).map_err(|_| ClientError::MalformedResponse)?;
