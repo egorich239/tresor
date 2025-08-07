@@ -8,6 +8,7 @@ use aes_gcm::{
 use rand::RngCore;
 use sha2::digest::consts::U12;
 
+#[derive(Debug)]
 pub struct AesSession {
     enc_key: SessionEncKey,
     session_id: SessionId,
@@ -29,6 +30,10 @@ impl AesSession {
         }
     }
 
+    pub fn session_id(&self) -> &SessionId {
+        &self.session_id
+    }
+
     pub fn encrypt(&self, cleartext: &[u8]) -> AesCiphertextSend {
         let cipher = Aes256Gcm::new_from_slice(self.enc_key.as_slice()).unwrap();
 
@@ -47,19 +52,19 @@ impl AesSession {
             .unwrap();
 
         let mut full_text = Vec::new();
-        full_text.extend_from_slice(&nonce);
+        full_text.extend_from_slice(nonce);
         full_text.extend_from_slice(&ciphertext);
         AesCiphertextSend(full_text)
     }
 
     pub fn decrypt(&self, ciphertext: AesCiphertextRecv) -> Option<Vec<u8>> {
         let cipher = Aes256Gcm::new_from_slice(self.enc_key.as_slice()).unwrap();
-        let nonce = Nonce::from_slice(&ciphertext.nonce);
+        let nonce = Nonce::from_slice(ciphertext.nonce);
         cipher
             .decrypt(
                 nonce,
                 Payload {
-                    msg: &ciphertext.ciphertext,
+                    msg: ciphertext.ciphertext,
                     aad: self.session_id.as_slice(),
                 },
             )
@@ -75,7 +80,7 @@ impl From<AesCiphertextSend> for Vec<u8> {
 
 impl<'n, 'c> AesCiphertextRecv<'n, 'c> {
     pub fn nonce(&self) -> AesNonce {
-        AesNonce(Nonce::from_slice(self.nonce).clone())
+        AesNonce(*Nonce::from_slice(self.nonce))
     }
 }
 

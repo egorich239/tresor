@@ -3,10 +3,10 @@ use crate::{
     api::{
         error::ApiError,
         message::{SignedMessage, VerifyStatus},
-        session::{Nonce, SessionEncKey, SessionId, SessionRequestPayload, SessionResponse},
+        session::{Nonce, SessionRequestPayload, SessionResponse},
     },
     cli::{ClientError, ClientResult},
-    enc,
+    enc::AesSession,
     identity::SigningIdentity,
 };
 use reqwest::blocking::Client;
@@ -15,8 +15,7 @@ use std::io::Read;
 
 #[derive(Debug)]
 pub struct Session<'c> {
-    id: SessionId,
-    enc_key: SessionEncKey,
+    aes_session: AesSession,
     server_url: String,
     client: &'c Client,
 }
@@ -24,19 +23,16 @@ pub struct Session<'c> {
 impl<'c> Session<'c> {
     pub fn query<Q: Serialize, A: DeserializeOwned>(&self, request: Q) -> ClientResult<A> {
         let payload_bytes = serde_json::to_vec(&request).map_err(ClientError::internal)?;
-
-        let (ciphertext, nonce) =
-            enc::encrypt(&payload_bytes, &self.enc_key).map_err(ClientError::internal)?;
-
-        let mut request_body = Vec::new();
-        request_body.extend_from_slice(nonce.as_slice());
-        request_body.extend_from_slice(&ciphertext);
+        let ciphertext: Vec<_> = self.aes_session.encrypt(&payload_bytes).into();
 
         let response = self
             .client
             .post(format!("{}/secret", self.server_url))
-            .header("X-Tresor-Session-Id", self.id.to_hex())
-            .body(request_body)
+            .header(
+                "X-Tresor-Session-Id",
+                self.aes_session.session_id().to_hex(),
+            )
+            .body(ciphertext)
             .send()?;
 
         if !response.status().is_success() {
@@ -44,17 +40,15 @@ impl<'c> Session<'c> {
             return Err(err.into());
         }
 
-        let response_body = response.bytes()?.to_vec();
-        if response_body.len() < 12 {
-            return Err(ClientError::MalformedResponse);
-        }
-        let (nonce, ciphertext) = response_body.split_at(12);
-        let nonce = aes_gcm::Nonce::from_slice(nonce);
-        println!("got here");
-
-        let response = enc::decrypt(ciphertext, nonce, &self.enc_key)
+        let response = response.bytes()?;
+        let response = response
+            .as_ref()
+            .try_into()
+            .map_err(|_| ClientError::MalformedResponse)?;
+        let response = self
+            .aes_session
+            .decrypt(response)
             .ok_or(ClientError::MalformedResponse)?;
-        println!("response: {response:?}");
 
         let response =
             serde_json::from_slice(&response).map_err(|_| ClientError::MalformedResponse)?;
@@ -112,8 +106,10 @@ pub fn request_session<'c>(
     // 7. Return the session details
     let session_payload = response.payload();
     Ok(Session {
-        id: session_payload.session_id.clone(),
-        enc_key: session_payload.enc_key.clone(),
+        aes_session: AesSession::new(
+            session_payload.enc_key.clone(),
+            session_payload.session_id.clone(),
+        ),
         server_url: server_url.to_string(),
         client,
     })

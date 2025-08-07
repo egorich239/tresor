@@ -8,7 +8,6 @@ use crate::{
     model::Model,
     srv::session::XTresorSessionId,
 };
-use aes_gcm::Nonce;
 use axum::{body::Bytes, extract::State, response::IntoResponse};
 
 pub async fn secret_handler(
@@ -21,11 +20,13 @@ pub async fn secret_handler(
         .get_session_key(&session_id)
         .await
         .ok_or(ApiError::Unauthorized)?;
-    let (nonce, ciphertext) = body.split_at(12);
-    let nonce = Nonce::from_slice(nonce);
+    let aes_session = enc::AesSession::new(enc_key, session_id);
+    let session_id = aes_session.session_id();
     // TODO: verify that nonce has not been used before during this session.
 
-    let payload = enc::decrypt(ciphertext, nonce, &enc_key).ok_or(ApiError::BadRequest)?;
+    let payload = aes_session
+        .decrypt(body.as_ref().try_into().map_err(|_| ApiError::BadRequest)?)
+        .ok_or(ApiError::BadRequest)?;
 
     let request: SecretRequest =
         serde_json::from_slice(&payload).map_err(|_| ApiError::BadRequest)?;
@@ -38,23 +39,16 @@ pub async fn secret_handler(
             description,
         } => {
             model
-                .secret_add(&session_id, &name, &value, &description)
+                .secret_add(session_id, &name, &value, &description)
                 .await?
         }
         SecretRequest::Update { name, value } => {
-            model.secret_update(&session_id, &name, &value).await?
+            model.secret_update(session_id, &name, &value).await?
         }
-        SecretRequest::Delete { name } => model.secret_delete(&session_id, &name).await?,
+        SecretRequest::Delete { name } => model.secret_delete(session_id, &name).await?,
     };
 
-    let response_payload =
-        serde_json::to_vec(&SecretResponse::Success).map_err(ApiError::internal)?;
-    let (response_payload, nonce) =
-        enc::encrypt(&response_payload, &enc_key).map_err(ApiError::internal)?;
-
-    let mut response = Vec::new();
-    response.extend_from_slice(&nonce);
-    response.extend_from_slice(&response_payload);
-
+    let response = serde_json::to_vec(&SecretResponse::Success).map_err(ApiError::internal)?;
+    let response: Vec<_> = aes_session.encrypt(&response).into();
     Ok(response)
 }
