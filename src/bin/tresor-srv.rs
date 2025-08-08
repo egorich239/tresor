@@ -5,7 +5,7 @@ use axum::{
     extract::{Request, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
 };
 use clap::{Args, Parser, Subcommand};
 use std::{net::SocketAddr, path::PathBuf};
@@ -16,6 +16,7 @@ use tresor::{
     srv::{
         AppState,
         env::env_handler,
+        publish::{get_handler, publish_handler},
         secret_handler,
         session::{self, CurrentTime},
     },
@@ -125,6 +126,8 @@ async fn cmd_run(config: &Config) -> Result<()> {
     let app = Router::new()
         .route("/secret", post(secret_handler))
         .route("/env", post(env_handler))
+        .route("/publish", post(publish_handler))
+        .route("/get/:endpoint", get(get_handler))
         .route("/session", post(start_session_handler))
         .with_state(AppState::new(config.srv.config.clone(), model).await);
 

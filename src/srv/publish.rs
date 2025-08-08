@@ -1,6 +1,9 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use axum::{extract::State, response::IntoResponse};
+use axum::{
+    extract::{Path, State},
+    response::IntoResponse,
+};
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha512};
 use tokio::sync::RwLock;
@@ -55,7 +58,7 @@ impl PublishStore {
 pub async fn publish_handler(
     State(app): State<AppState>,
     CurrentTime(now): CurrentTime,
-    SessionQuery { session, query }: SessionQuery<PublishRequest, 'a'>,
+    SessionQuery { session, query }: SessionQuery<PublishRequest, 'r'>,
 ) -> impl IntoResponse {
     let session = session.read().await;
     session
@@ -89,4 +92,15 @@ async fn _publish_handler(
         nonce: ciphertext.nonce(),
         endpoint,
     })
+}
+
+pub async fn get_handler(
+    State(app): State<AppState>,
+    Path(endpoint): Path<String>,
+) -> impl IntoResponse {
+    if let Some(bytes) = app.publish().get(&endpoint).await {
+        (axum::http::StatusCode::OK, bytes)
+    } else {
+        (axum::http::StatusCode::NOT_FOUND, Vec::new())
+    }
 }
