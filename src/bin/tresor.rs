@@ -4,11 +4,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use reqwest::blocking::Client;
 use tresor::{
-    cli::{
-        ClientError, ClientResult,
-        secret_edit,
-        session::request_session,
-    },
+    cli::{ClientError, ClientResult, secret_edit, session::request_session},
     config::{Config, ConfigError},
     identity::{SigningIdentity, SoftwareIdentity},
 };
@@ -85,17 +81,15 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Ping => {
-            let session = request_session(&client, identity.as_ref(), &server_url)?;
-            println!("Session: {session:?}");
+            request_session(&client, identity.as_ref(), &server_url)?;
+            println!("Successfully established a session");
         }
         Commands::Secret(secret_cmd) => {
             let session = request_session(&client, identity.as_ref(), &server_url)?;
-            let response = match secret_cmd.action {
-                SecretAction::Edit { script } => secret_edit(&session, script),
+            match secret_cmd.action {
+                SecretAction::Edit { script } => secret_edit(&session, script)?,
             };
-            println!("Server response: {response:?}");
         }
-    }
-
+    };
     Ok(())
 }

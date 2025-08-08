@@ -56,13 +56,13 @@ impl From<char> for IdentityRole {
 }
 
 impl TryFrom<&str> for IdentityRole {
-    type Error = ();
+    type Error = &'static str;
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         match s {
             "server" => Ok(IdentityRole::Server),
             "admin" => Ok(IdentityRole::Admin),
             "reader" => Ok(IdentityRole::Reader),
-            _ => Err(()),
+            _ => Err("invalid identity role"),
         }
     }
 }

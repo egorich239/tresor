@@ -17,6 +17,8 @@ pub struct AesSession {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AesNonce(Nonce<U12>);
 pub struct AesCiphertextSend(Vec<u8>);
+
+#[derive(Debug)]
 pub struct AesCiphertextRecv<'n, 'c> {
     nonce: &'n [u8],
     ciphertext: &'c [u8],

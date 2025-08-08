@@ -1,34 +1,47 @@
 use crate::{
-    api::secret::SecretRequest,
+    api::{
+        error::ApiResult,
+        secret::{SecretRequest, SecretResponse},
+    },
     srv::{
         AppState,
-        session::{CurrentTime, SessionQuery},
+        session::{CurrentTime, SessionQuery, SessionState},
     },
 };
 use axum::{extract::State, response::IntoResponse};
+use chrono::{DateTime, Utc};
 
 pub async fn secret_handler(
     State(app): State<AppState>,
-    CurrentTime(_): CurrentTime,
-    SessionQuery { session, query, .. }: SessionQuery<SecretRequest, 'a'>,
+    CurrentTime(now): CurrentTime,
+    SessionQuery { session, query }: SessionQuery<SecretRequest, 'a'>,
 ) -> impl IntoResponse {
-    let model = app.model();
     let session = session.read().await;
-    let session_id = session.session_id();
+    session
+        .response(_secret_handler(&app, &session, query, now).await)
+        .await
+}
+
+async fn _secret_handler(
+    app: &AppState,
+    session: &SessionState,
+    query: SecretRequest,
+    now: DateTime<Utc>,
+) -> ApiResult<SecretResponse> {
+    let mut tx = app.model().tx(now).await?;
+    let session_id = tx.get_session(session.session_id()).await?;
     let res = match query {
         SecretRequest::Add {
             name,
             value,
             description,
         } => {
-            model
-                .secret_add(session_id, &name, &value, &description)
+            tx.secret_add(&session_id, &name, &value, &description)
                 .await
         }
-        SecretRequest::Update { name, value } => {
-            model.secret_update(session_id, &name, &value).await
-        }
-        SecretRequest::Delete { name } => model.secret_delete(session_id, &name).await,
-    };
-    session.response(res).await
+        SecretRequest::Update { name, value } => tx.secret_update(&session_id, &name, &value).await,
+        SecretRequest::Delete { name } => tx.secret_delete(&session_id, &name).await,
+    }?;
+    tx.commit().await?;
+    Ok(res)
 }

@@ -49,10 +49,8 @@ impl<'c> Session<'c> {
             .aes_session
             .decrypt(response)
             .ok_or(ClientError::MalformedResponse)?;
-
         let response =
             serde_json::from_slice(&response).map_err(|_| ClientError::MalformedResponse)?;
-
         Ok(response)
     }
 }

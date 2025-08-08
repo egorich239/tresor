@@ -32,29 +32,25 @@ pub async fn start_session(
     state: &AppState,
     req: Request<Body>,
 ) -> ApiResult<Vec<u8>> {
-    let model = state.model();
+    let mut tx = state.model().tx(now).await?;
     let cfg = state.config();
     let Json(req): Json<SessionRequest> = Json::from_request(req, &())
         .await
         .map_err(|_| ApiError::BadRequest)?;
-    println!("req: {req:?}");
     let identity = req.payload().identity.clone();
-    model.check_identity(now, &req.payload().identity).await?;
+    let client_id = tx.get_identity(&identity).await?;
     req.verify(&identity).to_api_result()?;
-    let (srv_ident, srv_cert) = model.fetch_server_identity_for(now, &identity).await?;
-    println!("srv_ident: {srv_ident:?}");
+    let srv_ident = tx.get_server_identity_for(&client_id).await?;
 
     let deadline = now + cfg.max_session_duration;
-    let (sid, enc_key, role) = model
+    let (sid, enc_key, role) = tx
         .register_session(
-            now,
             cfg.max_session_duration,
             req.payload().nonce.clone(),
-            &identity,
-            &srv_ident.verifying_identity(),
+            &client_id,
+            &srv_ident,
         )
         .await?;
-    println!("session_id: {sid:?}");
 
     state
         .sessions()
@@ -64,18 +60,17 @@ pub async fn start_session(
     let response_payload = SessionResponsePayload {
         nonce: req.payload().nonce.clone(),
         session_id: sid,
-        certificate: srv_cert,
+        certificate: srv_ident.certificate().clone(),
         enc_key,
     };
 
-    let response = SignedMessage::new(response_payload, &srv_ident).map_err(ApiError::internal)?;
-    println!("response: {response:?}");
+    let response =
+        SignedMessage::new(response_payload, srv_ident.identity()).map_err(ApiError::internal)?;
     let bytes = serde_json::to_vec(&response).map_err(ApiError::internal)?;
+    tx.commit().await?;
+
     Ok(req.payload().recepient.encrypt(&bytes))
 }
-
-// Custom header type for `X-Tresor-Session-Id`
-pub struct XTresorSessionId(pub SessionId);
 
 #[derive(Clone)]
 pub struct SessionManager(Arc<SessionManagerState>);
@@ -102,29 +97,29 @@ impl SessionState {
         self.client_role
     }
 
-    pub fn err(&self, mut e: ApiError) -> (axum::http::StatusCode, Vec<u8>) {
-        e.sanitize();
-        (e.status_code(), serde_json::to_vec(&e).unwrap())
-    }
-
-    pub async fn ok<R: Serialize>(&self, response: R) -> (axum::http::StatusCode, Vec<u8>) {
-        match serde_json::to_vec(&response).map_err(ApiError::internal) {
-            Ok(response) => {
-                let enc: Vec<u8> = self.aes_session.encrypt(&response).into();
-                (axum::http::StatusCode::OK, enc)
-            }
-            Err(e) => self.err(e),
-        }
-    }
-
     pub async fn response<R: Serialize>(
         &self,
         res: ApiResult<R>,
     ) -> (axum::http::StatusCode, Vec<u8>) {
         match res {
-            Ok(response) => self.ok(response).await,
-            Err(e) => self.err(e),
+            Ok(response) => self._ok(response).await,
+            Err(e) => self._err(e),
         }
+    }
+
+    async fn _ok<R: Serialize>(&self, response: R) -> (axum::http::StatusCode, Vec<u8>) {
+        match serde_json::to_vec(&response).map_err(ApiError::internal) {
+            Ok(response) => {
+                let enc: Vec<u8> = self.aes_session.encrypt(&response).into();
+                (axum::http::StatusCode::OK, enc)
+            }
+            Err(e) => self._err(e),
+        }
+    }
+
+    fn _err(&self, mut e: ApiError) -> (axum::http::StatusCode, Vec<u8>) {
+        e.sanitize();
+        (e.status_code(), serde_json::to_vec(&e).unwrap())
     }
 }
 
@@ -164,14 +159,12 @@ impl SessionManager {
         body: &[u8],
         required_role: IdentityRole,
     ) -> ApiResult<(Arc<RwLock<SessionState>>, Q)> {
-        println!("get_query");
         let session_id = parts
             .headers
             .get("X-Tresor-Session-Id")
             .ok_or(ApiError::Unauthorized)?
             .to_str()
             .map_err(|_| ApiError::Unauthorized)?;
-        println!("session_id: {session_id:?}");
         let session_id = session_id.try_into().map_err(|_| ApiError::Unauthorized)?;
 
         let sessions = self.0.sessions.read().await;
@@ -185,14 +178,12 @@ impl SessionManager {
         {
             return Err(ApiError::Unauthorized);
         }
-        println!("session_ptr: {session_ptr:?}");
 
         let query = session
             .aes_session
             .decrypt(ciphertext)
             .ok_or(ApiError::Unauthorized)?;
         let query = serde_json::from_slice(&query).map_err(|_| ApiError::BadRequest)?;
-        println!("query: {query:?}");
         Ok((session_ptr.clone(), query))
     }
 
@@ -244,7 +235,6 @@ where
 
 pub struct SessionQuery<Q: DeserializeOwned, const R: char> {
     pub session: Arc<RwLock<SessionState>>,
-    pub now: DateTime<Utc>,
     pub query: Q,
 }
 
@@ -266,7 +256,6 @@ impl<Q: DeserializeOwned + Debug, const R: char> FromRequest<AppState> for Sessi
             .await?;
         Ok(SessionQuery {
             session: session_ptr,
-            now: now.0,
             query,
         })
     }

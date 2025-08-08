@@ -120,7 +120,27 @@ impl Model {
 
         Ok(())
     }
+
+    fn _key_file(data: &DataStore, identity: &VerifyingIdentity) -> PathBuf {
+        data.identities_dir()
+            .join(DataStore::file_by_identity(identity, "key"))
+    }
 }
+
+pub struct ModelTx<'a> {
+    tx: Transaction<'a, Sqlite>,
+    now: DateTime<Utc>,
+    data: DataStore,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClientIdentity(i32, VerifyingIdentity, IdentityRole);
+
+#[derive(Debug, Clone)]
+pub struct ServerIdentity(i32, SoftwareIdentity, ServerCertificate);
+
+#[derive(Debug, Clone)]
+pub struct TxSession(i32);
 
 impl Model {
     async fn _insert_identity(
@@ -145,42 +165,63 @@ impl Model {
         Ok(())
     }
 
-    pub async fn check_identity(
-        &self,
-        now: DateTime<Utc>,
-        key: &VerifyingIdentity,
-    ) -> ApiResult<()> {
-        sqlx::query(
-            "
-            SELECT 1
-            FROM identities
-            WHERE public_key = ?1
-              AND compromised_at IS NULL
-              AND ?2 BETWEEN created_at AND COALESCE(expires_at, ?2)
-            ",
-        )
-        .bind(key.hex())
-        .bind(now.to_rfc3339())
-        .fetch_optional(&self.0.pool)
-        .await
-        .map_err(|_| ApiError::InvalidIdentity)?
-        .ok_or(ApiError::InvalidIdentity)?;
+    pub async fn tx(&self, now: DateTime<Utc>) -> ApiResult<ModelTx<'_>> {
+        let tx = self.0.pool.begin().await.map_err(ApiError::internal)?;
+        Ok(ModelTx {
+            tx,
+            now,
+            data: self.0.data.clone(),
+        })
+    }
+}
+
+impl ModelTx<'_> {
+    pub async fn commit(self) -> ApiResult<()> {
+        self.tx.commit().await.map_err(ApiError::internal)?;
         Ok(())
     }
 
-    pub async fn fetch_server_identity_for(
-        &self,
-        now: DateTime<Utc>,
-        client: &VerifyingIdentity,
-    ) -> ApiResult<(SoftwareIdentity, ServerCertificate)> {
-        let server_identities = sqlx::query(
-            "SELECT public_key FROM identities WHERE role = 'server' AND compromised_at IS NULL ORDER BY id DESC",
+    pub async fn get_identity(&mut self, key: &VerifyingIdentity) -> ApiResult<ClientIdentity> {
+        let row = sqlx::query(
+            "
+                SELECT id, role
+                FROM identities
+                WHERE public_key = ?1
+                AND compromised_at IS NULL
+                AND ?2 BETWEEN created_at AND COALESCE(expires_at, ?2)",
         )
-        .fetch_all(&self.0.pool)
+        .bind(key.hex())
+        .bind(self.now.to_rfc3339())
+        .fetch_optional(&mut *self.tx)
         .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
+        .map_err(|_| ApiError::InvalidIdentity)?
+        .ok_or(ApiError::InvalidIdentity)?;
+        let id = row.get("id");
+        let role: String = row.get("role");
+        Ok(ClientIdentity(
+            id,
+            key.clone(),
+            role.as_str().try_into().map_err(ApiError::internal)?,
+        ))
+    }
 
-        let certs_dir = self.0.data.server_cert_dir(client);
+    pub async fn get_server_identity_for(
+        &mut self,
+        client: &ClientIdentity,
+    ) -> ApiResult<ServerIdentity> {
+        let server_identities = sqlx::query(
+            "
+            SELECT id, public_key
+            FROM identities
+            WHERE role = 'server' AND compromised_at IS NULL
+            ORDER BY id DESC
+            LIMIT 1",
+        )
+        .fetch_all(&mut *self.tx)
+        .await
+        .map_err(ApiError::internal)?;
+
+        let certs_dir = self.data.server_cert_dir(&client.1);
         for row in server_identities {
             let pk: String = row.get("public_key");
             let pk = pk
@@ -196,10 +237,10 @@ impl Model {
                 continue;
             }
             let cert = cert.unwrap();
-            if cert.check(now, &pk, client).is_err() {
+            if cert.check(self.now, &pk, &client.1).is_err() {
                 continue;
             }
-            let file = Self::_key_file(&self.0.data, cert.identity());
+            let file = Model::_key_file(&self.data, cert.identity());
             let srv_ident = SoftwareIdentity::load(&file);
             if srv_ident.is_err() {
                 continue;
@@ -208,181 +249,149 @@ impl Model {
             if srv_ident.verifying_identity() != pk {
                 continue;
             }
-            return Ok((srv_ident, cert));
+            return Ok(ServerIdentity(row.get("id"), srv_ident, cert));
         }
 
         Err(ApiError::InvalidServerIdentity)
     }
 
     pub async fn register_session(
-        &self,
-        now: DateTime<Utc>,
+        &mut self,
         duration: Duration,
         nonce: Nonce,
-        cli_ident: &VerifyingIdentity,
-        srv_ident: &VerifyingIdentity,
+        cli_ident: &ClientIdentity,
+        srv_ident: &ServerIdentity,
     ) -> ApiResult<(SessionId, SessionEncKey, IdentityRole)> {
         let session_id = SessionId::generate();
         let enc_key = SessionEncKey::generate();
 
-        let mut tx = self.0.pool.begin().await.map_err(Self::_internal)?;
-
         sqlx::query(
-            "INSERT INTO sessions (session_id, nonce, client_id, server_id, created_at, expires_at)
-             VALUES (
-                ?1, 
-                ?2,
-                (SELECT id FROM identities WHERE public_key = ?3 AND role IN ('admin', 'reader')),
-                (SELECT id FROM identities WHERE public_key = ?4 AND role = 'server'),
-                ?5, ?6)",
+            "INSERT INTO sessions
+                (session_id, nonce, client_id, server_id, created_at, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         )
         .bind(session_id.to_hex())
         .bind(nonce.to_hex())
-        .bind(cli_ident.hex())
-        .bind(srv_ident.hex())
-        .bind(now.to_rfc3339())
-        .bind((now + duration).to_rfc3339())
-        .execute(&mut *tx)
+        .bind(cli_ident.0)
+        .bind(srv_ident.0)
+        .bind(self.now.to_rfc3339())
+        .bind((self.now + duration).to_rfc3339())
+        .execute(&mut *self.tx)
         .await
-        .map_err(|e| Self::_conflict_as(e, ApiError::BadRequest))?;
+        .map_err(ApiError::internal)?;
+        Ok((session_id, enc_key, cli_ident.2))
+    }
 
-        let role = sqlx::query("SELECT role FROM identities WHERE public_key = ?1")
-            .bind(cli_ident.hex())
-            .fetch_optional(&mut *tx)
+    pub async fn get_session(&mut self, session_id: &SessionId) -> ApiResult<TxSession> {
+        let row = sqlx::query("SELECT id FROM sessions WHERE session_id = ?1")
+            .bind(session_id.to_hex())
+            .fetch_optional(&mut *self.tx)
             .await
-            .map_err(Self::_internal)?
+            .map_err(ApiError::internal)?
             .ok_or(ApiError::Unauthorized)?;
-        let role: String = role.get("role");
-        let role: IdentityRole = role
-            .as_str()
-            .try_into()
-            .map_err(|_| ApiError::internal("invalid role value"))?;
-        tx.commit().await.map_err(Self::_internal)?;
-        Ok((session_id, enc_key, role))
+        Ok(TxSession(row.get("id")))
     }
 
     pub async fn secret_add(
-        &self,
-        session_id: &SessionId,
+        &mut self,
+        session: &TxSession,
         name: &str,
         value: &str,
         description: &str,
     ) -> ApiResult<SecretResponse> {
-        if description.is_empty() {
+        if name.is_empty() || description.is_empty() {
             return Err(ApiError::BadRequest);
         }
 
-        let (mut tx, state) = self._secret_query_prelude(name).await?;
-        if state == SecretState::Exists {
-            return Ok(SecretResponse::KeyExists);
-        }
-
-        sqlx::query(
-            "INSERT INTO secrets (key, value, description, created_session_id)
-             VALUES (?1, ?2, ?3, 
-                    (SELECT id FROM sessions WHERE session_id = ?4))",
+        let result = sqlx::query(
+            "
+            INSERT INTO secret_keys (key, description, created_session_id)
+            VALUES (?1, ?2, ?3)
+            RETURNING id
+            ",
         )
         .bind(name)
-        .bind(value)
         .bind(description)
-        .bind(session_id.to_hex())
-        .execute(&mut *tx)
+        .bind(session.0)
+        .fetch_optional(&mut *self.tx)
+        .await;
+        let key_id: i32 = match result {
+            Ok(row) => row
+                .ok_or(ApiError::internal("failed to insert secret key"))?
+                .get("id"),
+            Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
+                return Ok(SecretResponse::KeyExists);
+            }
+            Err(e) => {
+                return Err(ApiError::internal(e));
+            }
+        };
+
+        sqlx::query(
+            "INSERT INTO secrets (key_id, value, created_session_id)
+             VALUES (?1, ?2, ?3)",
+        )
+        .bind(key_id)
+        .bind(value)
+        .bind(session.0)
+        .execute(&mut *self.tx)
         .await
-        .map_err(Self::_internal)?;
-        tx.commit().await.map_err(Self::_internal)?;
+        .map_err(ApiError::internal)?;
         Ok(SecretResponse::Success)
     }
 
     pub async fn secret_update(
-        &self,
-        session_id: &SessionId,
+        &mut self,
+        session: &TxSession,
         name: &str,
         value: &str,
     ) -> ApiResult<SecretResponse> {
-        let (mut tx, state) = self._secret_query_prelude(name).await?;
-        if state != SecretState::Exists {
-            return Ok(SecretResponse::KeyNotFound);
-        }
-
-        sqlx::query(
-            "INSERT INTO secrets (key, value, created_session_id) VALUES (?1, ?2, 
-                    (SELECT id FROM sessions WHERE session_id = ?3))",
+        let result = sqlx::query(
+            "
+            INSERT INTO secrets (key_id, value, created_session_id)
+            VALUES
+            (
+            (SELECT id FROM secret_keys WHERE key = ?1 AND deleted_session_id IS NULL),
+            ?2, ?3)
+            ",
         )
         .bind(name)
         .bind(value)
-        .bind(session_id.to_hex())
-        .execute(&mut *tx)
-        .await
-        .map_err(Self::_internal)?;
-        tx.commit().await.map_err(Self::_internal)?;
-        Ok(SecretResponse::Success)
+        .bind(session.0)
+        .execute(&mut *self.tx)
+        .await;
+        match result {
+            Ok(_) => Ok(SecretResponse::Success),
+            Err(sqlx::Error::Database(e)) if e.is_foreign_key_violation() => {
+                Ok(SecretResponse::KeyNotFound)
+            }
+            Err(e) => Err(ApiError::internal(e)),
+        }
     }
 
     pub async fn secret_delete(
-        &self,
-        session_id: &SessionId,
+        &mut self,
+        session: &TxSession,
         name: &str,
     ) -> ApiResult<SecretResponse> {
-        let (mut tx, state) = self._secret_query_prelude(name).await?;
-        if state != SecretState::Exists {
-            return Ok(SecretResponse::KeyNotFound);
-        }
-
-        sqlx::query(
-            "INSERT INTO secrets (key, created_session_id) VALUES (?1, 
-                    (SELECT id FROM sessions WHERE session_id = ?2))",
+        let result = sqlx::query(
+            "
+            UPDATE secret_keys
+            SET
+                deleted_session_id = ?1,
+                deleted_at = ?2
+            WHERE key = ?3 AND deleted_session_id IS NULL",
         )
+        .bind(session.0)
+        .bind(self.now.to_rfc3339())
         .bind(name)
-        .bind(session_id.to_hex())
-        .execute(&mut *tx)
+        .execute(&mut *self.tx)
         .await
-        .map_err(Self::_internal)?;
-        tx.commit().await.map_err(Self::_internal)?;
-        Ok(SecretResponse::Success)
-    }
-
-    async fn _secret_query_prelude(
-        &self,
-        name: &str,
-    ) -> ApiResult<(Transaction<'_, Sqlite>, SecretState)> {
-        if name.is_empty() {
-            return Err(ApiError::BadRequest);
+        .map_err(ApiError::internal)?;
+        match result.rows_affected() {
+            0 => Ok(SecretResponse::KeyNotFound),
+            _ => Ok(SecretResponse::Success),
         }
-
-        let mut tx = self.0.pool.begin().await.map_err(Self::_internal)?;
-        let row = sqlx::query("SELECT value FROM secrets WHERE key = ?1 ORDER BY id DESC LIMIT 1")
-            .bind(name)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(|e| ApiError::Internal(e.to_string()))?;
-        match row {
-            None => Ok((tx, SecretState::NotExists)),
-            Some(row) => {
-                let value: Option<String> = row.get("value");
-                match value {
-                    None => Ok((tx, SecretState::Deleted)),
-                    Some(_) => Ok((tx, SecretState::Exists)),
-                }
-            }
-        }
-    }
-
-    fn _conflict_as(e: sqlx::Error, err: ApiError) -> ApiError {
-        if let sqlx::Error::Database(e) = &e {
-            if e.is_unique_violation() {
-                return err;
-            }
-        }
-        ApiError::Internal(e.to_string())
-    }
-
-    fn _key_file(data: &DataStore, identity: &VerifyingIdentity) -> PathBuf {
-        data.identities_dir()
-            .join(DataStore::file_by_identity(identity, "key"))
-    }
-
-    fn _internal(e: sqlx::Error) -> ApiError {
-        ApiError::Internal(e.to_string())
     }
 }
 
@@ -391,4 +400,14 @@ enum SecretState {
     NotExists,
     Exists,
     Deleted,
+}
+
+impl ServerIdentity {
+    pub fn identity(&self) -> &SoftwareIdentity {
+        &self.1
+    }
+
+    pub fn certificate(&self) -> &ServerCertificate {
+        &self.2
+    }
 }

@@ -68,17 +68,29 @@ CREATE TABLE identities (
 -- Secrets and Environments
 --
 
-CREATE TABLE secrets (
+CREATE TABLE secret_keys (
     id INTEGER PRIMARY KEY,
     "key" TEXT NOT NULL,
-    value BLOB, -- A NULL value indicates the key has been deleted.
-    description TEXT,
+    description TEXT NOT NULL,
+
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+    created_session_id INTEGER NOT NULL REFERENCES sessions(id),
+
+    deleted_at TEXT,
+    deleted_session_id INTEGER REFERENCES sessions(id)
+);
+CREATE UNIQUE INDEX idx_secret_keys_key_unique ON secret_keys("key") WHERE deleted_at IS NULL;
+
+
+CREATE TABLE secrets (
+    id INTEGER PRIMARY KEY,
+    key_id INTEGER NOT NULL REFERENCES secret_keys(id),
+    value TEXT NOT NULL,
 
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
     created_session_id INTEGER NOT NULL REFERENCES sessions(id)
 );
-CREATE INDEX idx_secrets_key_created_at ON secrets("key", created_at DESC);
-
+CREATE INDEX idx_secrets_key_created_at ON secrets(key_id, created_at DESC);
 
 CREATE TABLE envs (
     id INTEGER PRIMARY KEY,
@@ -96,8 +108,8 @@ CREATE UNIQUE INDEX idx_envs_name_unique ON envs(name) WHERE deleted_at IS NULL;
 CREATE TABLE envvars (
     id INTEGER PRIMARY KEY,
     env_id INTEGER NOT NULL REFERENCES envs(id),
+    key_id INTEGER NOT NULL REFERENCES secret_keys(id),
     envvar TEXT NOT NULL,
-    "key" TEXT, -- A NULL value indicates the envvar has been unmapped/deleted.
 
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
     created_session_id INTEGER NOT NULL REFERENCES sessions(id)

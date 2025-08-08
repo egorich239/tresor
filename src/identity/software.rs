@@ -1,7 +1,4 @@
-use std::{
-    io,
-    path::Path,
-};
+use std::{io, path::Path};
 
 use ed25519_dalek::{
     Signature, SigningKey,
