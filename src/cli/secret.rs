@@ -1,33 +1,34 @@
 //! `tresor secret` subcommand implementation.
 
+use std::fs;
+use std::path::PathBuf;
+
+use serde::Deserialize;
+
 use crate::api::secret::{SecretRequest, SecretResponse};
 use crate::cli::error::ClientResult;
 use crate::cli::session::Session;
 
-pub fn secret_add(
-    session: &Session,
-    name: String,
-    value: String,
-    description: String,
-) -> ClientResult<SecretResponse> {
-    session.query(SecretRequest::Add {
-        name,
-        value,
-        description,
-    })
+#[derive(Debug, Deserialize)]
+struct SecretOps {
+    #[serde(default)]
+    op: Vec<SecretRequest>,
 }
 
-pub fn secret_update(
-    session: &Session,
-    name: String,
-    value: String,
-) -> ClientResult<SecretResponse> {
-    session.query(SecretRequest::Update { name, value })
-}
+pub fn secret_edit(session: &Session, script: PathBuf) -> ClientResult<()> {
+    let requests = fs::read_to_string(script)?;
+    let ops: SecretOps = toml::from_str(&requests)?;
 
-pub fn secret_delete(
-    session: &Session,
-    name: String,
-) -> ClientResult<SecretResponse> {
-    session.query(SecretRequest::Delete { name })
+    for op in ops.op {
+        let name = op.name().to_string();
+        let resp: ClientResult<SecretResponse> = session.query(op);
+        match resp {
+            Err(e) => println!("{name}\terror: {e}"),
+            Ok(SecretResponse::Success) => println!("{name}\tsuccess"),
+            Ok(SecretResponse::KeyExists) => println!("{name}\texists"),
+            Ok(SecretResponse::KeyNotFound) => println!("{name}\tnot found"),
+        }
+    }
+
+    Ok(())
 }

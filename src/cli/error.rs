@@ -27,6 +27,9 @@ pub enum ClientError {
     #[error(transparent)]
     IoError(#[from] io::Error),
 
+    #[error(transparent)]
+    TomlError(#[from] toml::de::Error),
+
     #[error("internal error: {0}")]
     Internal(Box<dyn std::error::Error + Send + Sync>),
 }

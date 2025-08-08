@@ -6,7 +6,7 @@ use reqwest::blocking::Client;
 use tresor::{
     cli::{
         ClientError, ClientResult,
-        secret::{secret_add, secret_delete, secret_update},
+        secret_edit,
         session::request_session,
     },
     config::{Config, ConfigError},
@@ -60,9 +60,7 @@ impl Identity {
 
 #[derive(Subcommand)]
 enum SecretAction {
-    Add,
-    Update,
-    Delete,
+    Edit { script: PathBuf },
 }
 
 #[derive(Parser)]
@@ -93,18 +91,7 @@ fn main() -> Result<()> {
         Commands::Secret(secret_cmd) => {
             let session = request_session(&client, identity.as_ref(), &server_url)?;
             let response = match secret_cmd.action {
-                SecretAction::Add => secret_add(
-                    &session,
-                    "dummy_name".to_string(),
-                    "dummy_value".to_string(),
-                    "dummy_description".to_string(),
-                ),
-                SecretAction::Update => secret_update(
-                    &session,
-                    "dummy_name".to_string(),
-                    "dummy_value".to_string(),
-                ),
-                SecretAction::Delete => secret_delete(&session, "dummy_name".to_string()),
+                SecretAction::Edit { script } => secret_edit(&session, script),
             };
             println!("Server response: {response:?}");
         }

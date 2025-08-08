@@ -16,6 +16,16 @@ pub enum SecretRequest {
     Delete { name: String },
 }
 
+impl SecretRequest {
+    pub fn name(&self) -> &str {
+        match self {
+            SecretRequest::Add { name, .. } => name,
+            SecretRequest::Update { name, .. } => name,
+            SecretRequest::Delete { name } => name,
+        }
+    }
+}
+
 /// Represents a successful response payload.
 /// As per the requirements, this is a message that indicates success
 /// but is empty of any specific data.
