@@ -7,7 +7,7 @@ use ed25519_dalek::{
 use rand::rngs::OsRng;
 use sha2::Sha512;
 
-use crate::identity::{SignatureResult, SigningIdentity, VerifyingIdentity};
+use crate::identity::{SignatureError, SignatureResult, SigningIdentity, VerifyingIdentity};
 
 /// An identity that possesses a private key and can create signatures.
 #[derive(Debug, Clone)]
@@ -31,7 +31,7 @@ impl SoftwareIdentity {
     pub fn sign_prehashed(&self, digest: Sha512) -> SignatureResult<Signature> {
         self.key()
             .sign_prehashed(digest, None)
-            .map_err(|e| super::SignatureError(e.to_string()))
+            .map_err(|e| SignatureError(e.to_string()))
     }
 
     pub fn load(file: &Path) -> io::Result<Self> {

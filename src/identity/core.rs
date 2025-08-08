@@ -5,12 +5,9 @@ use std::fmt::{self, Display};
 use std::io;
 use thiserror::Error;
 
-mod software;
-pub use software::*;
-
 #[derive(Error, Debug, Serialize, Deserialize)]
 #[error("signature failed: {0}")]
-pub struct SignatureError(String);
+pub struct SignatureError(pub String);
 
 pub type SignatureResult<T> = std::result::Result<T, SignatureError>;
 
