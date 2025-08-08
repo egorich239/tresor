@@ -1,7 +1,7 @@
 use crate::{
     api::{
         ServerCertificate, ServerIdentityClaim,
-        env::{EnvResponse, Envvar},
+        env::{Env, EnvResponse, Envvar},
         error::{ApiError, ApiResult},
         secret::SecretResponse,
         session::{Nonce, SessionEncKey, SessionId},
@@ -450,6 +450,39 @@ impl ModelTx<'_> {
         }
 
         Ok(EnvResponse::Success)
+    }
+
+    pub async fn env_get(&mut self, env: &str) -> ApiResult<Env> {
+        let mut envvars: Vec<_> = sqlx::query(
+            "
+            SELECT ev.envvar envvar, s2.value value
+            FROM envvars ev
+            INNER JOIN
+                (
+                SELECT ev.key_id key_id, MAX(s.id) secret_id
+                FROM envvars ev
+                INNER JOIN envs e
+                ON ev.env_id = e.id
+                INNER JOIN secrets s
+                ON ev.key_id = s.key_id
+                WHERE e.name = ?1 AND e.deleted_at IS NULL
+                ) s1
+            ON ev.key_id = s1.key_id
+            INNER JOIN secrets s2
+            ON s1.secret_id = s2.id",
+        )
+        .bind(env)
+        .fetch_all(&mut *self.tx)
+        .await
+        .map_err(ApiError::internal)?
+        .into_iter()
+        .map(|row| Envvar {
+            var: row.get("envvar"),
+            key: row.get("value"),
+        })
+        .collect();
+        envvars.sort_by_key(|e| e.var.clone());
+        Ok(envvars)
     }
 }
 

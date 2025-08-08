@@ -6,6 +6,11 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
 };
 use rand::RngCore;
+use serde::Deserialize;
+use serde::Deserializer;
+use serde::Serialize;
+use serde::Serializer;
+use serde::de::Error;
 use sha2::digest::consts::U12;
 
 #[derive(Debug)]
@@ -17,6 +22,16 @@ pub struct AesSession {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AesNonce(Nonce<U12>);
 pub struct AesCiphertextSend(Vec<u8>);
+
+impl AesCiphertextSend {
+    pub fn nonce(&self) -> AesNonce {
+        AesNonce(*Nonce::from_slice(&self.0[..12]))
+    }
+
+    pub fn ciphertext(&self) -> &[u8] {
+        &self.0[12..]
+    }
+}
 
 #[derive(Debug)]
 pub struct AesCiphertextRecv<'n, 'c> {
@@ -111,5 +126,38 @@ impl<'n, 'c> TryFrom<(&'n [u8], &'c [u8])> for AesCiphertextRecv<'n, 'c> {
             nonce: value.0,
             ciphertext: value.1,
         })
+    }
+}
+
+impl AesNonce {
+    pub fn to_hex(&self) -> String {
+        hex::encode(self.0.as_slice())
+    }
+
+    pub fn from_hex(s: &str) -> Option<Self> {
+        let bytes = hex::decode(s).ok()?;
+        if bytes.len() != 12 {
+            return None;
+        }
+        Some(AesNonce(*Nonce::from_slice(&bytes)))
+    }
+}
+
+impl Serialize for AesNonce {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_hex())
+    }
+}
+
+impl<'de> Deserialize<'de> for AesNonce {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        AesNonce::from_hex(&s).ok_or_else(|| Error::custom("invalid nonce"))
     }
 }

@@ -1,10 +1,15 @@
-use crate::{config::SrvConfig, model::Model, srv::session::SessionManager};
+use crate::{
+    config::SrvConfig,
+    model::Model,
+    srv::{publish::PublishStore, session::SessionManager},
+};
 
 #[derive(Clone)]
 pub struct AppState {
     config: SrvConfig,
     sessions: SessionManager,
     model: Model,
+    publish: PublishStore,
 }
 
 impl AppState {
@@ -12,6 +17,7 @@ impl AppState {
         Self {
             config,
             sessions: SessionManager::new().await,
+            publish: PublishStore::new().await,
             model,
         }
     }
@@ -26,5 +32,9 @@ impl AppState {
 
     pub fn sessions(&self) -> &SessionManager {
         &self.sessions
+    }
+
+    pub fn publish(&self) -> &PublishStore {
+        &self.publish
     }
 }

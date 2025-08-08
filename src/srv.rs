@@ -1,5 +1,6 @@
 pub mod app;
 pub mod env;
+pub mod publish;
 pub mod secret;
 pub mod session;
 

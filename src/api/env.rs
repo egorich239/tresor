@@ -18,6 +18,8 @@ pub struct Envvar {
     pub key: String,
 }
 
+pub type Env = Vec<Envvar>;
+
 /// Response for environment operations
 #[derive(Serialize, Deserialize, Debug)]
 pub enum EnvResponse {
