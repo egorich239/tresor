@@ -3094,6 +3094,7 @@ dependencies = [
  "chrono",
  "clap",
  "ed25519-dalek",
+ "futures",
  "hex",
  "humantime",
  "humantime-serde",

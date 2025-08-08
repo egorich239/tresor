@@ -44,6 +44,29 @@ pub enum IdentityRole {
     Reader,
 }
 
+impl From<char> for IdentityRole {
+    fn from(c: char) -> Self {
+        match c {
+            's' => IdentityRole::Server,
+            'a' => IdentityRole::Admin,
+            'r' => IdentityRole::Reader,
+            _ => panic!("invalid identity role: {c}"),
+        }
+    }
+}
+
+impl TryFrom<&str> for IdentityRole {
+    type Error = ();
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "server" => Ok(IdentityRole::Server),
+            "admin" => Ok(IdentityRole::Admin),
+            "reader" => Ok(IdentityRole::Reader),
+            _ => Err(()),
+        }
+    }
+}
+
 impl Display for IdentityRole {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

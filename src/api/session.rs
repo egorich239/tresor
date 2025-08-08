@@ -15,14 +15,14 @@ pub struct SessionEncKey(RandomBytes<32>);
 pub type Nonce = RandomBytes<16>;
 pub type SessionId = RandomBytes<16>;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SessionRequestPayload {
     pub nonce: Nonce,
     pub identity: VerifyingIdentity,
     pub recepient: RecepientStr,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SessionResponsePayload {
     pub nonce: Nonce,
     pub session_id: SessionId,

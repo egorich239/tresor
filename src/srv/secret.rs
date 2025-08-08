@@ -1,38 +1,21 @@
 use crate::{
-    api::{
-        error::{ApiError, ApiResult},
-        secret::{SecretRequest, SecretResponse},
+    api::secret::SecretRequest,
+    srv::{
+        AppState,
+        session::{CurrentTime, SessionQuery},
     },
-    config::SrvConfig,
-    enc,
-    model::Model,
-    srv::session::XTresorSessionId,
 };
-use axum::{body::Bytes, extract::State, response::IntoResponse};
+use axum::{extract::State, response::IntoResponse};
 
 pub async fn secret_handler(
-    State((_config, model)): State<(SrvConfig, Model)>,
-    XTresorSessionId(session_id): XTresorSessionId,
-    body: Bytes,
-) -> ApiResult<impl IntoResponse> {
-    // TODO: check that this is admin session.
-    let enc_key = model
-        .get_session_key(&session_id)
-        .await
-        .ok_or(ApiError::Unauthorized)?;
-    let aes_session = enc::AesSession::new(enc_key, session_id);
-    let session_id = aes_session.session_id();
-    // TODO: verify that nonce has not been used before during this session.
-
-    let payload = aes_session
-        .decrypt(body.as_ref().try_into().map_err(|_| ApiError::BadRequest)?)
-        .ok_or(ApiError::BadRequest)?;
-
-    let request: SecretRequest =
-        serde_json::from_slice(&payload).map_err(|_| ApiError::BadRequest)?;
-
-    // TODO: errors must also be encrypted!
-    match request {
+    State(app): State<AppState>,
+    CurrentTime(_): CurrentTime,
+    SessionQuery { session, query, .. }: SessionQuery<SecretRequest, 'a'>,
+) -> impl IntoResponse {
+    let model = app.model();
+    let session = session.read().await;
+    let session_id = session.session_id();
+    let res = match query {
         SecretRequest::Add {
             name,
             value,
@@ -40,15 +23,12 @@ pub async fn secret_handler(
         } => {
             model
                 .secret_add(session_id, &name, &value, &description)
-                .await?
+                .await
         }
         SecretRequest::Update { name, value } => {
-            model.secret_update(session_id, &name, &value).await?
+            model.secret_update(session_id, &name, &value).await
         }
-        SecretRequest::Delete { name } => model.secret_delete(session_id, &name).await?,
+        SecretRequest::Delete { name } => model.secret_delete(session_id, &name).await,
     };
-
-    let response = serde_json::to_vec(&SecretResponse::Success).map_err(ApiError::internal)?;
-    let response: Vec<_> = aes_session.encrypt(&response).into();
-    Ok(response)
+    session.response(res).await
 }

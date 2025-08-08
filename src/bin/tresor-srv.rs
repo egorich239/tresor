@@ -2,42 +2,30 @@ use anyhow::{Context, Result, bail};
 use axum::{
     Json, Router,
     body::Body,
-    extract::{FromRequestParts, Request, State},
-    http::{StatusCode, request::Parts},
+    extract::{Request, State},
+    http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::post,
 };
-use chrono::{DateTime, Utc};
 use clap::{Args, Parser, Subcommand};
 use std::{net::SocketAddr, path::PathBuf};
 use tokio::net::TcpListener;
 use tresor::{
-    config::{Config, SrvConfig},
+    config::Config,
     model::Model,
-    srv::{secret_handler, session},
+    srv::{
+        AppState, secret_handler,
+        session::{self, CurrentTime},
+    },
 };
-
-// Extractor for getting the current timestamp.
-pub struct CurrentTime(pub DateTime<Utc>);
-
-impl<S> FromRequestParts<S> for CurrentTime
-where
-    S: Send + Sync,
-{
-    type Rejection = std::convert::Infallible;
-
-    async fn from_request_parts(_parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        Ok(CurrentTime(Utc::now()))
-    }
-}
 
 // This is the axum handler, which acts as a thin wrapper.
 async fn start_session_handler(
     CurrentTime(now): CurrentTime,
-    State((cfg, model)): State<(SrvConfig, Model)>,
+    State(app): State<AppState>,
     req: Request<Body>,
 ) -> Response {
-    match session::start_session(now, &cfg, &model, req).await {
+    match session::start_session(now, &app, req).await {
         Ok(encrypted_response) => (
             StatusCode::OK,
             [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
@@ -133,10 +121,9 @@ async fn cmd_run(config: &Config) -> Result<()> {
     let model = Model::connect(&config.srv.data).await?;
 
     let app = Router::new()
-        .route("/", get(|| async { "Hello, Tresor!" }))
-        .route("/session", post(start_session_handler))
         .route("/secret", post(secret_handler))
-        .with_state((config.srv.config.clone(), model));
+        .route("/session", post(start_session_handler))
+        .with_state(AppState::new(config.srv.config.clone(), model).await);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], config.srv.port));
     println!("Listening on {addr}");

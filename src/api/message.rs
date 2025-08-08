@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use ed25519_dalek::Signature;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha512};
@@ -8,7 +10,7 @@ use crate::identity::{SignatureError, SignatureResult, SigningIdentity, Verifyin
 pub struct MessageSignature(Signature);
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SignedMessage<P: Serialize + Clone> {
+pub struct SignedMessage<P: Serialize + Clone + Debug> {
     payload: P,
     signature: MessageSignature,
 }
@@ -19,7 +21,7 @@ pub enum VerifyStatus {
     Failed,
 }
 
-impl<P: Serialize + Clone> SignedMessage<P> {
+impl<P: Serialize + Clone + Debug> SignedMessage<P> {
     pub fn new(payload: P, identity: &dyn SigningIdentity) -> SignatureResult<Self> {
         let signature = MessageSignature(identity.sign_prehashed(Self::_prehash(&payload)?)?);
         Ok(Self { payload, signature })

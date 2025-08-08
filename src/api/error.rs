@@ -1,6 +1,9 @@
 use std::fmt;
 
-use axum::http::StatusCode;
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -14,27 +17,17 @@ pub enum ApiError {
     #[error("invalid signature")]
     InvalidSignature,
 
-    #[error("unauthorized")]
-    Unauthorized,
-
     #[error("invalid identity")]
     InvalidIdentity,
 
     #[error("invalid server identity")]
     InvalidServerIdentity,
 
-    #[error("transient error, retry later")]
-    TransientError,
+    #[error("unauthorized")]
+    Unauthorized,
 
     #[error("internal error: {0}")]
     Internal(String),
-
-    // Secrets API
-    #[error("duplicate secret")]
-    DuplicateSecret,
-
-    #[error("unknown secret")]
-    UnknownSecret,
 }
 
 impl ApiError {
@@ -42,12 +35,9 @@ impl ApiError {
         match self {
             ApiError::BadRequest => StatusCode::BAD_REQUEST,
             ApiError::InvalidSignature => StatusCode::FORBIDDEN,
-            ApiError::Unauthorized => StatusCode::UNAUTHORIZED,
             ApiError::InvalidIdentity => StatusCode::FORBIDDEN,
             ApiError::InvalidServerIdentity => StatusCode::FORBIDDEN,
-            ApiError::TransientError => StatusCode::SERVICE_UNAVAILABLE,
-            ApiError::DuplicateSecret => StatusCode::CONFLICT,
-            ApiError::UnknownSecret => StatusCode::NOT_FOUND,
+            ApiError::Unauthorized => StatusCode::UNAUTHORIZED,
             ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -59,12 +49,9 @@ impl ApiError {
     }
 }
 
-impl axum::response::IntoResponse for ApiError {
-    fn into_response(self) -> axum::response::Response {
-        let status_code = self.status_code();
-        let body =
-            serde_json::to_string(&self).unwrap_or_else(|_| "Internal server error".to_string());
-        (status_code, body).into_response()
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        self.status_code().into_response()
     }
 }
 

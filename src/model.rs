@@ -2,6 +2,7 @@ use crate::{
     api::{
         ServerCertificate, ServerIdentityClaim,
         error::{ApiError, ApiResult},
+        secret::SecretResponse,
         session::{Nonce, SessionEncKey, SessionId},
     },
     config::{DataStore, Srv},
@@ -9,16 +10,14 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction, sqlite::SqliteConnectOptions};
-use std::{collections::HashMap, fs, path::PathBuf, sync::Arc, time::Duration};
+use std::{fs, path::PathBuf, sync::Arc, time::Duration};
 use thiserror::Error;
-use tokio::sync::RwLock;
 
 const DB_SCHEMA: &str = include_str!("../sql/schema.sql");
 
 struct ModelState {
     pool: SqlitePool,
     data: DataStore,
-    session_keys: RwLock<HashMap<SessionId, SessionEncKey>>,
 }
 
 #[derive(Clone)]
@@ -48,11 +47,8 @@ impl Model {
     pub async fn connect(data: &DataStore) -> Result<Self, ModelConnectError> {
         let pool =
             SqlitePool::connect_with(SqliteConnectOptions::new().filename(data.db_path())).await?;
-        Ok(Self(Arc::new(ModelState {
-            pool,
-            data: data.clone(),
-            session_keys: RwLock::new(HashMap::new()),
-        })))
+        let data = data.clone();
+        Ok(Self(Arc::new(ModelState { pool, data })))
     }
 
     /// Initializes the model.
@@ -225,9 +221,11 @@ impl Model {
         nonce: Nonce,
         cli_ident: &VerifyingIdentity,
         srv_ident: &VerifyingIdentity,
-    ) -> ApiResult<(SessionId, SessionEncKey)> {
+    ) -> ApiResult<(SessionId, SessionEncKey, IdentityRole)> {
         let session_id = SessionId::generate();
         let enc_key = SessionEncKey::generate();
+
+        let mut tx = self.0.pool.begin().await.map_err(Self::_internal)?;
 
         sqlx::query(
             "INSERT INTO sessions (session_id, nonce, client_id, server_id, created_at, expires_at)
@@ -244,26 +242,23 @@ impl Model {
         .bind(srv_ident.hex())
         .bind(now.to_rfc3339())
         .bind((now + duration).to_rfc3339())
-        .execute(&self.0.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| Self::_conflict_as(e, ApiError::BadRequest))?;
 
-        if self
-            .0
-            .session_keys
-            .write()
+        let role = sqlx::query("SELECT role FROM identities WHERE public_key = ?1")
+            .bind(cli_ident.hex())
+            .fetch_optional(&mut *tx)
             .await
-            .insert(session_id.clone(), enc_key.clone())
-            .is_some()
-        {
-            return Err(ApiError::Internal("session_id already exists".into()));
-        }
-
-        Ok((session_id, enc_key))
-    }
-
-    pub async fn get_session_key(&self, session_id: &SessionId) -> Option<SessionEncKey> {
-        self.0.session_keys.read().await.get(session_id).cloned()
+            .map_err(Self::_internal)?
+            .ok_or(ApiError::Unauthorized)?;
+        let role: String = role.get("role");
+        let role: IdentityRole = role
+            .as_str()
+            .try_into()
+            .map_err(|_| ApiError::internal("invalid role value"))?;
+        tx.commit().await.map_err(Self::_internal)?;
+        Ok((session_id, enc_key, role))
     }
 
     pub async fn secret_add(
@@ -272,14 +267,14 @@ impl Model {
         name: &str,
         value: &str,
         description: &str,
-    ) -> ApiResult<()> {
+    ) -> ApiResult<SecretResponse> {
         if description.is_empty() {
             return Err(ApiError::BadRequest);
         }
 
         let (mut tx, state) = self._secret_query_prelude(name).await?;
         if state == SecretState::Exists {
-            return Err(ApiError::DuplicateSecret);
+            return Ok(SecretResponse::KeyExists);
         }
 
         sqlx::query(
@@ -295,7 +290,7 @@ impl Model {
         .await
         .map_err(Self::_internal)?;
         tx.commit().await.map_err(Self::_internal)?;
-        Ok(())
+        Ok(SecretResponse::Success)
     }
 
     pub async fn secret_update(
@@ -303,10 +298,10 @@ impl Model {
         session_id: &SessionId,
         name: &str,
         value: &str,
-    ) -> ApiResult<()> {
+    ) -> ApiResult<SecretResponse> {
         let (mut tx, state) = self._secret_query_prelude(name).await?;
         if state != SecretState::Exists {
-            return Err(ApiError::UnknownSecret);
+            return Ok(SecretResponse::KeyNotFound);
         }
 
         sqlx::query(
@@ -320,26 +315,30 @@ impl Model {
         .await
         .map_err(Self::_internal)?;
         tx.commit().await.map_err(Self::_internal)?;
-        Ok(())
+        Ok(SecretResponse::Success)
     }
 
-    pub async fn secret_delete(&self, session_id: &SessionId, name: &str) -> ApiResult<()> {
+    pub async fn secret_delete(
+        &self,
+        session_id: &SessionId,
+        name: &str,
+    ) -> ApiResult<SecretResponse> {
         let (mut tx, state) = self._secret_query_prelude(name).await?;
         if state != SecretState::Exists {
-            return Err(ApiError::UnknownSecret);
+            return Ok(SecretResponse::KeyNotFound);
         }
 
         sqlx::query(
             "INSERT INTO secrets (key, created_session_id) VALUES (?1, 
                     (SELECT id FROM sessions WHERE session_id = ?2))",
         )
-            .bind(name)
-            .bind(session_id.to_hex())
-            .execute(&mut *tx)
-            .await
-            .map_err(Self::_internal)?;
+        .bind(name)
+        .bind(session_id.to_hex())
+        .execute(&mut *tx)
+        .await
+        .map_err(Self::_internal)?;
         tx.commit().await.map_err(Self::_internal)?;
-        Ok(())
+        Ok(SecretResponse::Success)
     }
 
     async fn _secret_query_prelude(
