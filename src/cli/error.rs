@@ -33,6 +33,9 @@ pub enum ClientError {
     #[error("expected exactly one environment table in the file")]
     ExpectedOneEnvTable,
 
+    #[error("invalid identity")]
+    InvalidIdentity,
+
     #[error("internal error: {0}")]
     Internal(Box<dyn std::error::Error + Send + Sync>),
 }

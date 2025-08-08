@@ -1,3 +1,4 @@
+use clap::ValueEnum;
 use ed25519_dalek::{Signature, VerifyingKey};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::Sha512;
@@ -33,8 +34,9 @@ impl Display for VerifyingIdentity {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[serde(rename_all = "snake_case")]
+#[clap(rename_all = "snake_case")]
 pub enum IdentityRole {
     Server,
     Admin,

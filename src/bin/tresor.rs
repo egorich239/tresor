@@ -1,12 +1,18 @@
 use std::{io, path::PathBuf};
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use reqwest::blocking::Client;
 use tresor::{
-    cli::{ClientError, ClientResult, env::env_create, secret_edit, session::request_session},
+    cli::{
+        ClientError, ClientResult,
+        env::env_create,
+        identity::{PubkeySource, identity_add},
+        secret_edit,
+        session::request_session,
+    },
     config::{Config, ConfigError},
-    identity::{SigningIdentity, SoftwareIdentity},
+    identity::{IdentityRole, SigningIdentity, SoftwareIdentity},
 };
 
 #[derive(Parser)]
@@ -81,6 +87,33 @@ enum Commands {
     Ping,
     Secret(SecretCommands),
     Env(EnvCommands),
+    Identity(IdentityCommands),
+}
+#[derive(Subcommand, Debug)]
+enum IdentityAction {
+    Add(IdentityAddArgs),
+}
+
+#[derive(Args, Debug)]
+struct IdentityAddArgs {
+    #[arg(value_enum)]
+    role: IdentityRole,
+    name: String,
+    /// Inline PEM payload (base64, without header/footer)
+    #[arg(conflicts_with_all = ["key", "pubkey"])]
+    inline: Option<String>,
+    /// Private key PEM file to derive pubkey from
+    #[arg(short = 'k', long = "key", conflicts_with = "pubkey")]
+    priv_key: Option<PathBuf>,
+    /// Public key PEM file
+    #[arg(short = 'p', long = "pubkey")]
+    pub_key: Option<PathBuf>,
+}
+
+#[derive(Parser, Debug)]
+struct IdentityCommands {
+    #[command(subcommand)]
+    action: IdentityAction,
 }
 
 fn main() -> Result<()> {
@@ -107,6 +140,23 @@ fn main() -> Result<()> {
             match env_cmd.action {
                 EnvAction::Create { file } => env_create(&session, file)?,
             };
+        }
+        Commands::Identity(id_cmd) => {
+            let session = request_session(&client, identity.as_ref(), &server_url)?;
+            match id_cmd.action {
+                IdentityAction::Add(args) => {
+                    let key_src = if let Some(s) = args.inline {
+                        PubkeySource::Inline(s)
+                    } else if let Some(k) = args.priv_key {
+                        PubkeySource::PrivateKeyFile(k)
+                    } else if let Some(p) = args.pub_key {
+                        PubkeySource::PublicKeyFile(p)
+                    } else {
+                        return Err(anyhow::anyhow!("no key provided: use inline, -k or -p"));
+                    };
+                    identity_add(&session, args.role, args.name, key_src)?
+                }
+            }
         }
     };
     Ok(())
