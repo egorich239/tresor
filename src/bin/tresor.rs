@@ -104,10 +104,10 @@ struct IdentityAddArgs {
     inline: Option<String>,
     /// Private key PEM file to derive pubkey from
     #[arg(short = 'k', long = "key", conflicts_with = "pubkey")]
-    priv_key: Option<PathBuf>,
+    key: Option<PathBuf>,
     /// Public key PEM file
     #[arg(short = 'p', long = "pubkey")]
-    pub_key: Option<PathBuf>,
+    pubkey: Option<PathBuf>,
 }
 
 #[derive(Parser, Debug)]
@@ -147,9 +147,9 @@ fn main() -> Result<()> {
                 IdentityAction::Add(args) => {
                     let key_src = if let Some(s) = args.inline {
                         PubkeySource::Inline(s)
-                    } else if let Some(k) = args.priv_key {
+                    } else if let Some(k) = args.key {
                         PubkeySource::PrivateKeyFile(k)
-                    } else if let Some(p) = args.pub_key {
+                    } else if let Some(p) = args.pubkey {
                         PubkeySource::PublicKeyFile(p)
                     } else {
                         return Err(anyhow::anyhow!("no key provided: use inline, -k or -p"));

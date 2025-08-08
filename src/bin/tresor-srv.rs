@@ -129,7 +129,7 @@ async fn cmd_run(config: &Config) -> Result<()> {
         .route("/env", post(env_handler))
         .route("/identity", post(identity_handler))
         .route("/publish", post(publish_handler))
-        .route("/get/:endpoint", get(get_handler))
+        .route("/get/{endpoint}", get(get_handler))
         .route("/session", post(start_session_handler))
         .with_state(AppState::new(config.srv.config.clone(), model).await);
 
