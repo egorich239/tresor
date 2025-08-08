@@ -16,6 +16,7 @@ use tresor::{
     srv::{
         AppState,
         env::env_handler,
+        identity::identity_handler,
         publish::{get_handler, publish_handler},
         secret_handler,
         session::{self, CurrentTime},
@@ -126,6 +127,7 @@ async fn cmd_run(config: &Config) -> Result<()> {
     let app = Router::new()
         .route("/secret", post(secret_handler))
         .route("/env", post(env_handler))
+        .route("/identity", post(identity_handler))
         .route("/publish", post(publish_handler))
         .route("/get/:endpoint", get(get_handler))
         .route("/session", post(start_session_handler))

@@ -3,6 +3,7 @@ use crate::{
         ServerCertificate, ServerIdentityClaim,
         env::{Env, EnvResponse, Envvar},
         error::{ApiError, ApiResult},
+        identity::IdentityResponse,
         secret::SecretResponse,
         session::{Nonce, SessionEncKey, SessionId},
     },
@@ -392,6 +393,37 @@ impl ModelTx<'_> {
         match result.rows_affected() {
             0 => Ok(SecretResponse::KeyNotFound),
             _ => Ok(SecretResponse::Success),
+        }
+    }
+
+    pub async fn identity_add(
+        &mut self,
+        session: &TxSession,
+        name: &str,
+        key: &VerifyingIdentity,
+        role: IdentityRole,
+    ) -> ApiResult<IdentityResponse> {
+        if name.is_empty() || role == IdentityRole::Server {
+            return Err(ApiError::BadRequest);
+        }
+        let result = sqlx::query(
+            "
+            INSERT INTO identities (name, public_key, role, created_session_id)
+            VALUES (?1, ?2, ?3, ?4)
+            ",
+        )
+        .bind(name)
+        .bind(key.hex())
+        .bind(role.to_string())
+        .bind(session.0)
+        .execute(&mut *self.tx)
+        .await;
+        match result {
+            Ok(_) => Ok(IdentityResponse::Success),
+            Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
+                Ok(IdentityResponse::AlreadyExists)
+            }
+            Err(e) => Err(ApiError::internal(e)),
         }
     }
 
