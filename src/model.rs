@@ -1,6 +1,7 @@
 use crate::{
     api::{
         ServerCertificate, ServerIdentityClaim,
+        env::{EnvResponse, Envvar},
         error::{ApiError, ApiResult},
         secret::SecretResponse,
         session::{Nonce, SessionEncKey, SessionId},
@@ -393,13 +394,63 @@ impl ModelTx<'_> {
             _ => Ok(SecretResponse::Success),
         }
     }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SecretState {
-    NotExists,
-    Exists,
-    Deleted,
+    pub async fn env_create(
+        &mut self,
+        session: &TxSession,
+        env: &str,
+        pairs: &[Envvar],
+    ) -> ApiResult<EnvResponse> {
+        if env.is_empty() {
+            return Err(ApiError::BadRequest);
+        }
+
+        let result = sqlx::query(
+            "
+            INSERT INTO envs (name, created_session_id)
+            VALUES (?1, ?2)
+            RETURNING id
+            ",
+        )
+        .bind(env)
+        .bind(session.0)
+        .fetch_optional(&mut *self.tx)
+        .await;
+
+        let env_id: i32 = match result {
+            Ok(row) => row
+                .ok_or(ApiError::internal("failed to insert env"))?
+                .get("id"),
+            Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
+                return Ok(EnvResponse::EnvExists);
+            }
+            Err(e) => return Err(ApiError::internal(e)),
+        };
+
+        for pair in pairs {
+            let result = sqlx::query(
+                "
+                INSERT INTO envvars (env_id, key_id, envvar, created_session_id)
+                SELECT ?1, id, ?2, ?3
+                FROM secret_keys
+                WHERE key = ?4 AND deleted_at IS NULL
+                ",
+            )
+            .bind(env_id)
+            .bind(&pair.var)
+            .bind(session.0)
+            .bind(&pair.key)
+            .execute(&mut *self.tx)
+            .await
+            .map_err(ApiError::internal)?;
+
+            if result.rows_affected() == 0 {
+                return Err(ApiError::BadRequest);
+            }
+        }
+
+        Ok(EnvResponse::Success)
+    }
 }
 
 impl ServerIdentity {

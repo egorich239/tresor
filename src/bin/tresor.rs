@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use reqwest::blocking::Client;
 use tresor::{
-    cli::{ClientError, ClientResult, secret_edit, session::request_session},
+    cli::{ClientError, ClientResult, env::env_create, secret_edit, session::request_session},
     config::{Config, ConfigError},
     identity::{SigningIdentity, SoftwareIdentity},
 };
@@ -66,9 +66,21 @@ struct SecretCommands {
 }
 
 #[derive(Subcommand)]
+enum EnvAction {
+    Create { file: PathBuf },
+}
+
+#[derive(Parser)]
+struct EnvCommands {
+    #[command(subcommand)]
+    action: EnvAction,
+}
+
+#[derive(Subcommand)]
 enum Commands {
     Ping,
     Secret(SecretCommands),
+    Env(EnvCommands),
 }
 
 fn main() -> Result<()> {
@@ -88,6 +100,12 @@ fn main() -> Result<()> {
             let session = request_session(&client, identity.as_ref(), &server_url)?;
             match secret_cmd.action {
                 SecretAction::Edit { script } => secret_edit(&session, script)?,
+            };
+        }
+        Commands::Env(env_cmd) => {
+            let session = request_session(&client, identity.as_ref(), &server_url)?;
+            match env_cmd.action {
+                EnvAction::Create { file } => env_create(&session, file)?,
             };
         }
     };

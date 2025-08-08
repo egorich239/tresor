@@ -21,13 +21,17 @@ pub struct Session<'c> {
 }
 
 impl<'c> Session<'c> {
-    pub fn query<Q: Serialize, A: DeserializeOwned>(&self, request: Q) -> ClientResult<A> {
+    pub fn query<Q: Serialize, A: DeserializeOwned>(
+        &self,
+        endpoint: &str,
+        request: Q,
+    ) -> ClientResult<A> {
         let payload_bytes = serde_json::to_vec(&request).map_err(ClientError::internal)?;
         let ciphertext: Vec<_> = self.aes_session.encrypt(&payload_bytes).into();
 
         let response = self
             .client
-            .post(format!("{}/secret", self.server_url))
+            .post(format!("{}/{}", self.server_url, endpoint))
             .header(
                 "X-Tresor-Session-Id",
                 self.aes_session.session_id().to_hex(),

@@ -14,7 +14,9 @@ use tresor::{
     config::Config,
     model::Model,
     srv::{
-        AppState, secret_handler,
+        AppState,
+        env::env_handler,
+        secret_handler,
         session::{self, CurrentTime},
     },
 };
@@ -122,6 +124,7 @@ async fn cmd_run(config: &Config) -> Result<()> {
 
     let app = Router::new()
         .route("/secret", post(secret_handler))
+        .route("/env", post(env_handler))
         .route("/session", post(start_session_handler))
         .with_state(AppState::new(config.srv.config.clone(), model).await);
 

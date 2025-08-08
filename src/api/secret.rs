@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// `POST /secret` endpoint request payload.
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "action", rename_all = "lowercase")]
+#[serde(tag = "action", rename_all = "snake_case")]
 pub enum SecretRequest {
     /// Create a new secret. Fails if it already exists.
     Add {

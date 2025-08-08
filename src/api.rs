@@ -1,4 +1,5 @@
 pub mod bytes;
+pub mod env;
 pub mod error;
 pub mod message;
 pub mod secret;

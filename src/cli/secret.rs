@@ -21,7 +21,7 @@ pub fn secret_edit(session: &Session, script: PathBuf) -> ClientResult<()> {
 
     for op in ops.op {
         let name = op.name().to_string();
-        let resp: ClientResult<SecretResponse> = session.query(op);
+        let resp: ClientResult<SecretResponse> = session.query("secret", op);
         match resp {
             Err(e) => println!("{name}\terror: {e}"),
             Ok(SecretResponse::Success) => println!("{name}\tsuccess"),
