@@ -1,5 +1,5 @@
 use crate::{
-    api::{ApiResult, SecretRequest, SecretResponse},
+    api::{SecretRequest, SecretResponse, TransportResult},
     srv::{
         AppState,
         session::{CurrentTime, SessionQuery, SessionState},
@@ -24,7 +24,7 @@ async fn _secret_handler(
     session: &SessionState,
     query: SecretRequest,
     now: DateTime<Utc>,
-) -> ApiResult<SecretResponse> {
+) -> TransportResult<SecretResponse> {
     let mut tx = app.model().tx(now).await?;
     let session_id = tx.get_session(session.session_id()).await?;
     let res = match query {

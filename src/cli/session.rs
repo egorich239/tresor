@@ -1,8 +1,8 @@
 use crate::{
     age::RecepientStr,
     api::{
-        ApiError, Nonce, SessionEncKey, SessionRequestPayload, SessionResponse, SignedMessage,
-        VerifyStatus,
+        Nonce, SessionEncKey, SessionRequestPayload, SessionResponse, SignedMessage,
+        TransportError, VerifyStatus,
     },
     cli::{ClientError, ClientResult},
     enc::{AesNonce, AesSession},
@@ -39,7 +39,7 @@ impl<'c> Session<'c> {
             .send()?;
 
         if !response.status().is_success() {
-            let err: ApiError = response.json()?;
+            let err: TransportError = response.json()?;
             return Err(err.into());
         }
 
@@ -102,8 +102,8 @@ pub fn request_session<'c>(
         .send()?;
 
     if !response.status().is_success() {
-        let err: ApiError = response.json()?;
-        return Err(ClientError::ApiError(err));
+        let err: TransportError = response.json()?;
+        return Err(ClientError::TransportError(err));
     }
 
     let response = response.bytes()?;

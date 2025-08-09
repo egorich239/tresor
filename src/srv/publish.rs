@@ -9,7 +9,7 @@ use sha2::{Digest, Sha512};
 use tokio::sync::RwLock;
 
 use crate::{
-    api::{ApiError, ApiResult, PublishRequest, PublishResponse, SessionEncKey},
+    api::{PublishRequest, PublishResponse, SessionEncKey, TransportError, TransportResult},
     enc::AesSession,
     srv::{
         AppState,
@@ -67,12 +67,12 @@ async fn _publish_handler(
     session: &SessionState,
     query: PublishRequest,
     now: DateTime<Utc>,
-) -> ApiResult<PublishResponse> {
+) -> TransportResult<PublishResponse> {
     let mut tx = app.model().tx(now).await?;
     let env = tx.env_get(&query.env).await?;
     tx.commit().await?;
 
-    let envvars = serde_json::to_vec(&env).map_err(|_| ApiError::Internal)?;
+    let envvars = serde_json::to_vec(&env).map_err(|_| TransportError::Internal)?;
     let key = SessionEncKey::generate();
     let sid = session.session_id().clone();
     let aes = AesSession::new(key.clone(), sid);

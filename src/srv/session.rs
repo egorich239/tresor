@@ -17,8 +17,8 @@ use tokio::sync::RwLock;
 
 use crate::{
     api::{
-        ApiError, ApiResult, SessionEncKey, SessionId, SessionRequest, SessionResponsePayload,
-        SignedMessage, VerifyStatus,
+        SessionEncKey, SessionId, SessionRequest, SessionResponsePayload, SignedMessage,
+        TransportError, TransportResult, VerifyStatus,
     },
     enc::{AesCiphertextRecv, AesNonce, AesSession},
     identity::IdentityRole,
@@ -29,14 +29,14 @@ pub async fn start_session(
     now: DateTime<Utc>,
     state: &AppState,
     req: Result<Json<SessionRequest>, JsonRejection>,
-) -> ApiResult<Vec<u8>> {
+) -> TransportResult<Vec<u8>> {
     let mut tx = state.model().tx(now).await?;
     let cfg = state.config();
-    let Json(req) = req.map_err(|_| ApiError::BadRequest)?;
+    let Json(req) = req.map_err(|_| TransportError::BadRequest)?;
     let identity = req.payload().identity.clone();
     let client_id = tx.get_identity(&identity).await?;
     if req.verify(&identity) != VerifyStatus::Ok {
-        return Err(ApiError::Forbidden);
+        return Err(TransportError::Forbidden);
     }
     let srv_ident = tx.get_server_identity_for(&client_id).await?;
 
@@ -63,8 +63,8 @@ pub async fn start_session(
     };
 
     let response = SignedMessage::new(response_payload, srv_ident.identity())
-        .map_err(|_| ApiError::Internal)?;
-    let bytes = serde_json::to_vec(&response).map_err(|_| ApiError::Internal)?;
+        .map_err(|_| TransportError::Internal)?;
+    let bytes = serde_json::to_vec(&response).map_err(|_| TransportError::Internal)?;
     tx.commit().await?;
 
     Ok(req.payload().recepient.encrypt(&bytes))
@@ -96,7 +96,7 @@ impl SessionState {
 
     pub async fn response<R: Serialize>(
         &self,
-        res: ApiResult<R>,
+        res: TransportResult<R>,
     ) -> (axum::http::StatusCode, Vec<u8>) {
         match res {
             Ok(response) => self._ok(response).await,
@@ -105,7 +105,7 @@ impl SessionState {
     }
 
     async fn _ok<R: Serialize>(&self, response: R) -> (axum::http::StatusCode, Vec<u8>) {
-        match serde_json::to_vec(&response).map_err(|_| ApiError::Internal) {
+        match serde_json::to_vec(&response).map_err(|_| TransportError::Internal) {
             Ok(response) => {
                 let enc: Vec<u8> = self.aes_session.encrypt(&response).into();
                 (axum::http::StatusCode::OK, enc)
@@ -114,7 +114,7 @@ impl SessionState {
         }
     }
 
-    fn _err(&self, e: ApiError) -> (axum::http::StatusCode, Vec<u8>) {
+    fn _err(&self, e: TransportError) -> (axum::http::StatusCode, Vec<u8>) {
         (e.status_code(), serde_json::to_vec(&e).unwrap())
     }
 }
@@ -152,32 +152,37 @@ impl SessionManager {
         parts: &Parts,
         body: &[u8],
         required_role: IdentityRole,
-    ) -> ApiResult<(Arc<RwLock<SessionState>>, Q)> {
+    ) -> TransportResult<(Arc<RwLock<SessionState>>, Q)> {
         let session_id = parts
             .headers
             .get("X-Tresor-Session-Id")
-            .ok_or(ApiError::Unauthorized)?
+            .ok_or(TransportError::Unauthorized)?
             .to_str()
-            .map_err(|_| ApiError::Unauthorized)?;
-        let session_id = session_id.try_into().map_err(|_| ApiError::Unauthorized)?;
+            .map_err(|_| TransportError::Unauthorized)?;
+        let session_id = session_id
+            .try_into()
+            .map_err(|_| TransportError::Unauthorized)?;
 
         let sessions = self.0.sessions.read().await;
-        let session_ptr = sessions.get(&session_id).ok_or(ApiError::Unauthorized)?;
+        let session_ptr = sessions
+            .get(&session_id)
+            .ok_or(TransportError::Unauthorized)?;
 
         let mut session = session_ptr.write().await;
-        let ciphertext: AesCiphertextRecv = body.try_into().map_err(|_| ApiError::BadRequest)?;
+        let ciphertext: AesCiphertextRecv =
+            body.try_into().map_err(|_| TransportError::BadRequest)?;
         if session.deadline < now
             || session.client_role != required_role
             || !session.nonces.insert(ciphertext.nonce())
         {
-            return Err(ApiError::Unauthorized);
+            return Err(TransportError::Unauthorized);
         }
 
         let query = session
             .aes_session
             .decrypt(ciphertext)
-            .ok_or(ApiError::Unauthorized)?;
-        let query = serde_json::from_slice(&query).map_err(|_| ApiError::BadRequest)?;
+            .ok_or(TransportError::Unauthorized)?;
+        let query = serde_json::from_slice(&query).map_err(|_| TransportError::BadRequest)?;
         Ok((session_ptr.clone(), query))
     }
 
@@ -233,14 +238,14 @@ pub struct SessionQuery<Q: DeserializeOwned, const R: char> {
 }
 
 impl<Q: DeserializeOwned + Debug, const R: char> FromRequest<AppState> for SessionQuery<Q, R> {
-    type Rejection = ApiError;
+    type Rejection = TransportError;
 
     async fn from_request(req: Request, state: &AppState) -> Result<Self, Self::Rejection> {
         let (parts, body) = req.into_parts();
         let body = axum::body::to_bytes(body, usize::MAX)
             .await
-            .map_err(|_| ApiError::BadRequest)?;
-        let now: &CurrentTime = parts.extensions.get().ok_or(ApiError::Internal)?;
+            .map_err(|_| TransportError::BadRequest)?;
+        let now: &CurrentTime = parts.extensions.get().ok_or(TransportError::Internal)?;
         let (session_ptr, query) = state
             .sessions()
             .get_query(now.0, &parts, &body, R.into())

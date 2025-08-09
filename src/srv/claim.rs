@@ -2,7 +2,7 @@ use axum::{extract::State, response::IntoResponse};
 use chrono::{DateTime, Utc};
 
 use crate::{
-    api::{ApiResult, ClaimRequest, ClaimResponse},
+    api::{ClaimRequest, ClaimResponse, TransportResult},
     srv::{
         AppState,
         session::{CurrentTime, SessionQuery},
@@ -24,7 +24,7 @@ pub async fn _claim_handler(
     app: &AppState,
     req: ClaimRequest,
     now: DateTime<Utc>,
-) -> ApiResult<ClaimResponse> {
+) -> TransportResult<ClaimResponse> {
     let mut tx = app.model().tx(now).await?;
     let claim = tx.get_server_identity_claim(&req.issuer).await?;
     Ok(ClaimResponse { claim })

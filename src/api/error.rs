@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Error, Debug, Serialize, Deserialize)]
-pub enum ApiError {
+pub enum TransportError {
     #[error("unauthorized")]
     Unauthorized,
 
@@ -20,21 +20,29 @@ pub enum ApiError {
     Internal,
 }
 
-impl ApiError {
+impl TransportError {
     pub fn status_code(&self) -> StatusCode {
         match self {
-            ApiError::BadRequest => StatusCode::BAD_REQUEST,
-            ApiError::Forbidden => StatusCode::FORBIDDEN,
-            ApiError::Unauthorized => StatusCode::UNAUTHORIZED,
-            ApiError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+            TransportError::BadRequest => StatusCode::BAD_REQUEST,
+            TransportError::Forbidden => StatusCode::FORBIDDEN,
+            TransportError::Unauthorized => StatusCode::UNAUTHORIZED,
+            TransportError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
 
-impl IntoResponse for ApiError {
+impl IntoResponse for TransportError {
     fn into_response(self) -> Response {
         self.status_code().into_response()
     }
 }
 
-pub type ApiResult<T> = std::result::Result<T, ApiError>;
+#[derive(Error, Debug, Serialize, Deserialize)]
+pub enum AppError {
+    #[error("internal error: {0}")]
+    Internal(String),
+}
+
+pub type AppResult<T> = std::result::Result<T, AppError>;
+
+pub type TransportResult<T> = std::result::Result<T, TransportError>;
