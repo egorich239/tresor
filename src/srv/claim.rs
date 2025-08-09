@@ -17,7 +17,7 @@ pub async fn claim_handler(
     session
         .read()
         .await
-        .respond_raw(_claim_handler(&app, query, now).await)
+        .respond_api(_claim_handler(&app, query, now).await)
 }
 
 pub async fn _claim_handler(

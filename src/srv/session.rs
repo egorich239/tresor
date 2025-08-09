@@ -113,14 +113,6 @@ impl SessionState {
         }
     }
 
-    pub fn respond_raw<R: Serialize>(&self, res: impl Into<ApiResult<R>>) -> Response {
-        match res.into() {
-            Ok(response) => self.respond_json(response),
-            Err(ApiError::App(_)) => TransportError::Internal.into_response(),
-            Err(ApiError::Transport(t)) => t.into_response(),
-        }
-    }
-
     fn respond_json<R: Serialize>(&self, res: R) -> Response {
         match serde_json::to_vec(&res) {
             Ok(response) => {
@@ -129,30 +121,6 @@ impl SessionState {
             }
             Err(_) => TransportError::Internal.into_response(),
         }
-    }
-
-    pub async fn response<R: Serialize>(
-        &self,
-        res: TransportResult<R>,
-    ) -> (axum::http::StatusCode, Vec<u8>) {
-        match res {
-            Ok(response) => self._ok(response).await,
-            Err(e) => self._err(e),
-        }
-    }
-
-    async fn _ok<R: Serialize>(&self, response: R) -> (axum::http::StatusCode, Vec<u8>) {
-        match serde_json::to_vec(&response).map_err(|_| TransportError::Internal) {
-            Ok(response) => {
-                let enc: Vec<u8> = self.aes_session.encrypt(&response).into();
-                (axum::http::StatusCode::OK, enc)
-            }
-            Err(e) => self._err(e),
-        }
-    }
-
-    fn _err(&self, e: TransportError) -> (axum::http::StatusCode, Vec<u8>) {
-        (e.status_code(), serde_json::to_vec(&e).unwrap())
     }
 }
 
