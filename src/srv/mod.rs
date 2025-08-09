@@ -1,4 +1,5 @@
 pub mod app;
+pub mod claim;
 pub mod env;
 pub mod identity;
 pub mod publish;

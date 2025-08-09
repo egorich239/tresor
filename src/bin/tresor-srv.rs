@@ -15,6 +15,7 @@ use tresor::{
     model::Model,
     srv::{
         AppState,
+        claim::claim_handler,
         env::env_handler,
         identity::identity_handler,
         publish::{get_handler, publish_handler},
@@ -130,6 +131,7 @@ async fn cmd_run(config: &Config) -> Result<()> {
         .route("/identity", post(identity_handler))
         .route("/publish", post(publish_handler))
         .route("/get/{endpoint}", get(get_handler))
+        .route("/claim", post(claim_handler))
         .route("/session", post(start_session_handler))
         .with_state(AppState::new(config.srv.config.clone(), model).await);
 

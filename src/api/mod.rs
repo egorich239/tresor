@@ -1,4 +1,5 @@
 pub mod bytes;
+pub mod claim;
 pub mod env;
 pub mod error;
 pub mod identity;

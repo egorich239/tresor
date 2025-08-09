@@ -43,7 +43,7 @@ pub enum IdentityError {
 impl ServerCertificate {
     pub fn new(
         payload: ServerIdentityClaim,
-        identity: &impl SigningIdentity,
+        identity: &dyn SigningIdentity,
     ) -> SignatureResult<Self> {
         Ok(Self(SignedMessage::new(payload, identity)?))
     }

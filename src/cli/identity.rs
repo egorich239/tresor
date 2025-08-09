@@ -2,8 +2,8 @@ use std::{fs, path::PathBuf};
 
 use crate::{
     api::identity::{IdentityRequest, IdentityResponse},
-    cli::{ClientError, ClientResult, session::Session},
-    identity::{IdentityRole, VerifyingIdentity},
+    cli::{session::Session, ClientError, ClientResult},
+    identity::{IdentityRole, SigningIdentity, VerifyingIdentity},
 };
 use ed25519_dalek::{SigningKey, VerifyingKey, pkcs8::DecodePrivateKey, pkcs8::DecodePublicKey};
 
@@ -39,9 +39,9 @@ pub fn identity_add(
     session: &Session,
     role: IdentityRole,
     name: String,
-    key_src: PubkeySource,
+    identity: Box<dyn SigningIdentity>,
 ) -> ClientResult<()> {
-    let key = load_pubkey(key_src)?;
+    let key = identity.verifying_identity();
     let req = IdentityRequest::Add { name, key, role };
     let res: IdentityResponse = session.query("identity", req)?;
     match res {

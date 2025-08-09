@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::identity::{IdentityRole, VerifyingIdentity};
+use crate::{
+    api::ServerIdentityClaim,
+    identity::{IdentityRole, VerifyingIdentity},
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "action", rename_all = "snake_case")]

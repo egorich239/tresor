@@ -1,4 +1,4 @@
-use std::{io, path::PathBuf};
+use std::{io, path::PathBuf, str::FromStr};
 
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
@@ -19,44 +19,109 @@ use tresor::{
 #[command(version, about, long_about = None)]
 struct Cli {
     #[clap(flatten)]
-    identity: IdentityArgs,
+    identity: SessionIdentityArg,
 
     #[command(subcommand)]
     command: Commands,
 }
 
+#[derive(Clone, Debug)]
+struct KeyIdentityArg {
+    key: PathBuf,
+    host: String,
+    port: u16,
+}
+
+impl FromStr for KeyIdentityArg {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (key_part, addr_part) = s.rsplit_once('@').ok_or("expected key@host:port")?;
+        if key_part.is_empty() || addr_part.is_empty() {
+            return Err("expected key@host:port".into());
+        }
+        let (host, port_str) = if addr_part.starts_with('[') {
+            let end = addr_part.find(']').ok_or("invalid [host]:port")?;
+            let host = &addr_part[1..end];
+            let rest = &addr_part[end + 1..];
+            let port = rest.strip_prefix(':').ok_or("missing :port")?;
+            (host.to_string(), port.to_string())
+        } else {
+            addr_part
+                .rsplit_once(':')
+                .map(|(h, p)| (h.to_string(), p.to_string()))
+                .ok_or_else(|| "expected host:port".to_string())?
+        };
+        let port: u16 = port_str.parse().map_err(|_| "invalid port".to_string())?;
+        Ok(KeyIdentityArg {
+            key: PathBuf::from(key_part),
+            host,
+            port,
+        })
+    }
+}
+
 #[derive(Parser, Debug)]
 #[group(required = true, multiple = false)]
-struct IdentityArgs {
-    #[arg(short('R'), long, group = "identity")]
+struct SessionIdentityArg {
+    #[arg(short('R'), long, group = "session-identity")]
     root: Option<PathBuf>,
+    #[arg(short('K'), long, group = "session-identity")]
+    key: Option<KeyIdentityArg>,
+}
+
+#[derive(Parser, Debug)]
+#[group(required = true, multiple = false)]
+struct ParamIdentityArg {
+    #[arg(short('k'), long, group = "param-identity")]
+    key: Option<PathBuf>,
+}
+
+impl ParamIdentityArg {
+    pub fn build(self) -> ClientResult<Box<dyn SigningIdentity>> {
+        let key = SoftwareIdentity::load(&self.key.ok_or(ClientError::InvalidIdentity)?)?;
+        Ok(Box::new(key))
+    }
 }
 
 enum Identity {
     Software {
         identity: SoftwareIdentity,
+        host: String,
         port: u16,
     },
 }
 
 impl Identity {
-    pub fn new(args: IdentityArgs) -> ClientResult<Identity> {
-        let config = Config::load(args.root.as_ref().unwrap())?;
-        let root = SoftwareIdentity::load(&config.srv.data.root_key_symlink())?;
-        Ok(Identity::Software {
-            identity: root,
-            port: config.srv.port,
-        })
-    }
-
-    pub fn build(self) -> ClientResult<Box<dyn SigningIdentity>> {
-        match self {
-            Identity::Software { identity, .. } => Ok(Box::new(identity)),
+    pub fn new(args: SessionIdentityArg) -> ClientResult<Identity> {
+        if let Some(root_arg) = args.root {
+            let config = Config::load(&root_arg)?;
+            let root = SoftwareIdentity::load(&config.srv.data.root_key_symlink())?;
+            Ok(Identity::Software {
+                identity: root,
+                host: "localhost".to_string(),
+                port: config.srv.port,
+            })
+        } else if let Some(key_arg) = args.key {
+            let key = SoftwareIdentity::load(&key_arg.key)?;
+            Ok(Identity::Software {
+                identity: key,
+                host: key_arg.host,
+                port: key_arg.port,
+            })
+        } else {
+            Err(ClientError::Internal("no identity provided".into()))
         }
     }
 
-    fn _rce(err: io::Error) -> ClientError {
-        ClientError::RootConfigError(ConfigError::Io(err))
+    pub fn build(self) -> ClientResult<(Box<dyn SigningIdentity>, String, u16)> {
+        match self {
+            Identity::Software {
+                identity,
+                host,
+                port,
+            } => Ok((Box::new(identity), host, port)),
+        }
     }
 }
 
@@ -99,15 +164,8 @@ struct IdentityAddArgs {
     #[arg(value_enum)]
     role: IdentityRole,
     name: String,
-    /// Inline PEM payload (base64, without header/footer)
-    #[arg(conflicts_with_all = ["key", "pubkey"])]
-    inline: Option<String>,
-    /// Private key PEM file to derive pubkey from
-    #[arg(short = 'k', long = "key", conflicts_with = "pubkey")]
-    key: Option<PathBuf>,
-    /// Public key PEM file
-    #[arg(short = 'p', long = "pubkey")]
-    pubkey: Option<PathBuf>,
+    #[clap(flatten)]
+    identity: ParamIdentityArg,
 }
 
 #[derive(Parser, Debug)]
@@ -118,11 +176,11 @@ struct IdentityCommands {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let identity @ Identity::Software { port, .. } = Identity::new(cli.identity)?;
-    let identity = identity.build()?;
+    let identity = Identity::new(cli.identity)?;
+    let (identity, host, port) = identity.build()?;
 
     let client = Client::new();
-    let server_url = format!("http://localhost:{port}");
+    let server_url = format!("http://{host}:{port}");
 
     match cli.command {
         Commands::Ping => {
@@ -145,16 +203,7 @@ fn main() -> Result<()> {
             let session = request_session(&client, identity.as_ref(), &server_url)?;
             match id_cmd.action {
                 IdentityAction::Add(args) => {
-                    let key_src = if let Some(s) = args.inline {
-                        PubkeySource::Inline(s)
-                    } else if let Some(k) = args.key {
-                        PubkeySource::PrivateKeyFile(k)
-                    } else if let Some(p) = args.pubkey {
-                        PubkeySource::PublicKeyFile(p)
-                    } else {
-                        return Err(anyhow::anyhow!("no key provided: use inline, -k or -p"));
-                    };
-                    identity_add(&session, args.role, args.name, key_src)?
+                    identity_add(&session, args.role, args.name, args.identity.build()?)?
                 }
             }
         }

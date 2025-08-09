@@ -207,6 +207,42 @@ impl ModelTx<'_> {
         ))
     }
 
+    pub async fn get_server_identity_claim(
+        &mut self,
+        issuer: &VerifyingIdentity,
+    ) -> ApiResult<ServerIdentityClaim> {
+        let row = sqlx::query(
+            "
+            SELECT public_key, created_at, expires_at
+            FROM identities
+            WHERE role = 'server' AND compromised_at IS NULL
+            ORDER BY id DESC
+            LIMIT 1",
+        )
+        .fetch_optional(&mut *self.tx)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or(ApiError::internal("no server identity found"))?;
+
+        let key: String = row.get("public_key");
+        let key = key.as_str().try_into().map_err(ApiError::internal)?;
+        let created_at: DateTime<Utc> = row
+            .get::<String, _>("created_at")
+            .parse()
+            .map_err(ApiError::internal)?;
+        let expires_at: DateTime<Utc> = row
+            .get::<String, _>("expires_at")
+            .parse()
+            .map_err(ApiError::internal)?;
+
+        Ok(ServerIdentityClaim {
+            server_pubkey: key,
+            issuer_pubkey: issuer.clone(),
+            issued_at: created_at,
+            expires_at,
+        })
+    }
+
     pub async fn get_server_identity_for(
         &mut self,
         client: &ClientIdentity,
@@ -216,8 +252,7 @@ impl ModelTx<'_> {
             SELECT id, public_key
             FROM identities
             WHERE role = 'server' AND compromised_at IS NULL
-            ORDER BY id DESC
-            LIMIT 1",
+            ORDER BY id DESC",
         )
         .fetch_all(&mut *self.tx)
         .await
@@ -229,7 +264,7 @@ impl ModelTx<'_> {
             let pk = pk
                 .as_str()
                 .try_into()
-                .map_err(|_| ApiError::Internal("invalid public_key".into()));
+                .map_err(|_| ApiError::internal("invalid public_key"));
             if pk.is_err() {
                 continue;
             }
