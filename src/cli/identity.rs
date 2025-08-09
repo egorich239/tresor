@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::{
-    api::{IdentityRequest, IdentityResponse},
+    api::{ClaimRequest, ClaimResponse, IdentityRequest, IdentityResponse, ServerCertificate},
     cli::{ClientResult, Session},
     identity::{IdentityRole, SigningIdentity},
 };
@@ -19,8 +19,16 @@ pub fn identity_add(
     identity: Box<dyn SigningIdentity>,
 ) -> ClientResult<()> {
     let key = identity.verifying_identity();
-    let req = IdentityRequest::Add { name, key, role };
-    let res: IdentityResponse = session.query("identity", req)?;
+    let claim: ClaimResponse = session.query("claim", ClaimRequest { issuer: key })?;
+    let certificate = ServerCertificate::new(claim.claim, &*identity)?;
+    let res: IdentityResponse = session.query(
+        "identity",
+        IdentityRequest::Add {
+            name,
+            role,
+            certificate,
+        },
+    )?;
     match res {
         IdentityResponse::Success => println!("identity added"),
         IdentityResponse::AlreadyExists => println!("identity already exists"),

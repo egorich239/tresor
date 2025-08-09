@@ -1,8 +1,11 @@
 use crate::{
     age::RecepientStr,
-    api::{ApiError, Nonce, SessionRequestPayload, SessionResponse, SignedMessage, VerifyStatus},
+    api::{
+        ApiError, Nonce, SessionEncKey, SessionRequestPayload, SessionResponse, SignedMessage,
+        VerifyStatus,
+    },
     cli::{ClientError, ClientResult},
-    enc::AesSession,
+    enc::{AesNonce, AesSession},
     identity::SigningIdentity,
 };
 use reqwest::blocking::Client;
@@ -52,6 +55,29 @@ impl<'c> Session<'c> {
         let response =
             serde_json::from_slice(&response).map_err(|_| ClientError::MalformedResponse)?;
         Ok(response)
+    }
+
+    pub fn get_endpoint_session(&self, key: &SessionEncKey) -> Session<'c> {
+        Session {
+            aes_session: AesSession::new(key.clone(), self.aes_session.session_id().clone()),
+            server_url: self.server_url.clone(),
+            client: self.client,
+        }
+    }
+
+    pub fn get<R: DeserializeOwned>(&self, endpoint: &str, nonce: &AesNonce) -> ClientResult<R> {
+        let response = self
+            .client
+            .get(format!("{}/get/{}", self.server_url, endpoint))
+            .send()?;
+        let payload = response.bytes()?;
+        let payload = self
+            .aes_session
+            .decrypt((nonce, payload.as_ref()).into())
+            .ok_or(ClientError::MalformedResponse)?;
+        let res: R =
+            serde_json::from_slice(&payload).map_err(|_| ClientError::MalformedResponse)?;
+        Ok(res)
     }
 }
 

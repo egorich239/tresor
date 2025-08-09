@@ -1,6 +1,7 @@
 use std::fmt;
 
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -23,6 +24,9 @@ pub enum ApiError {
     #[error("invalid server identity")]
     InvalidServerIdentity,
 
+    #[error("invalid certificate")]
+    InvalidCertificate,
+
     #[error("unauthorized")]
     Unauthorized,
 
@@ -37,6 +41,7 @@ impl ApiError {
             ApiError::InvalidSignature => StatusCode::FORBIDDEN,
             ApiError::InvalidIdentity => StatusCode::FORBIDDEN,
             ApiError::InvalidServerIdentity => StatusCode::FORBIDDEN,
+            ApiError::InvalidCertificate => StatusCode::FORBIDDEN,
             ApiError::Unauthorized => StatusCode::UNAUTHORIZED,
             ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -50,8 +55,9 @@ impl ApiError {
 }
 
 impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        self.status_code().into_response()
+    fn into_response(mut self) -> Response {
+        self.sanitize();
+        (self.status_code(), Json(self)).into_response()
     }
 }
 

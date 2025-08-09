@@ -1,9 +1,8 @@
 use anyhow::{Context, Result, bail};
 use axum::{
-    Json, Router,
+    Router,
     body::Body,
     extract::{Request, State},
-    http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -25,18 +24,7 @@ async fn start_session_handler(
     State(app): State<AppState>,
     req: Request<Body>,
 ) -> Response {
-    match start_session(now, &app, req).await {
-        Ok(encrypted_response) => (
-            StatusCode::OK,
-            [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
-            encrypted_response,
-        )
-            .into_response(),
-        Err(mut e) => {
-            e.sanitize();
-            (e.status_code(), Json(e)).into_response()
-        }
-    }
+    start_session(now, &app, req).await.into_response()
 }
 
 #[derive(Parser)]

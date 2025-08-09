@@ -12,7 +12,7 @@ use crate::{
     identity::{SignatureResult, SigningIdentity, VerifyingIdentity},
 };
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ServerIdentityClaim {
     pub server_pubkey: VerifyingIdentity,
     pub issuer_pubkey: VerifyingIdentity,
@@ -64,6 +64,10 @@ impl ServerCertificate {
         &self.0.payload().server_pubkey
     }
 
+    pub fn issuer(&self) -> &VerifyingIdentity {
+        &self.0.payload().issuer_pubkey
+    }
+
     pub fn check(
         &self,
         now: DateTime<Utc>,
@@ -92,5 +96,9 @@ impl ServerCertificate {
         }
 
         Ok(())
+    }
+
+    pub fn matches_claim(&self, claim: &ServerIdentityClaim) -> bool {
+        self.0.payload() == claim
     }
 }

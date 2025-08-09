@@ -1,7 +1,10 @@
 use axum::{extract::State, response::IntoResponse};
+use chrono::{DateTime, Utc};
 
 use crate::{
-    api::{ApiResult, IdentityRequest, IdentityResponse},
+    api::{ApiResult, IdentityRequest, IdentityResponse, ServerCertificate},
+    identity::IdentityRole,
+    model::{ModelTx, TxSession},
     srv::{
         AppState,
         session::{CurrentTime, SessionQuery, SessionState},
@@ -23,15 +26,27 @@ async fn _identity_handler(
     app: &AppState,
     session: &SessionState,
     req: IdentityRequest,
-    now: chrono::DateTime<chrono::Utc>,
+    now: DateTime<Utc>,
 ) -> ApiResult<IdentityResponse> {
     let mut tx = app.model().tx(now).await?;
     let session_id = tx.get_session(session.session_id()).await?;
     let res = match req {
-        IdentityRequest::Add { name, key, role } => {
-            tx.identity_add(&session_id, &name, &key, role).await?
-        }
+        IdentityRequest::Add {
+            name,
+            role,
+            certificate,
+        } => _identity_add(&mut tx, &session_id, &name, role, &certificate).await?,
     };
     tx.commit().await?;
     Ok(res)
+}
+
+async fn _identity_add(
+    tx: &mut ModelTx<'_>,
+    session_id: &TxSession,
+    name: &str,
+    role: IdentityRole,
+    certificate: &ServerCertificate,
+) -> ApiResult<IdentityResponse> {
+    tx.identity_add(session_id, name, certificate, role).await
 }

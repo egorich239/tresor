@@ -115,17 +115,12 @@ impl<'c> TryFrom<&'c [u8]> for AesCiphertextRecv<'c, 'c> {
     }
 }
 
-impl<'n, 'c> TryFrom<(&'n [u8], &'c [u8])> for AesCiphertextRecv<'n, 'c> {
-    type Error = ();
-
-    fn try_from(value: (&'n [u8], &'c [u8])) -> Result<Self, Self::Error> {
-        if value.0.len() != 12 {
-            return Err(());
-        }
-        Ok(AesCiphertextRecv {
-            nonce: value.0,
+impl<'n, 'c> From<(&'n AesNonce, &'c [u8])> for AesCiphertextRecv<'n, 'c> {
+    fn from(value: (&'n AesNonce, &'c [u8])) -> Self {
+        Self {
+            nonce: value.0.0.as_slice(),
             ciphertext: value.1,
-        })
+        }
     }
 }
 

@@ -22,7 +22,7 @@ use crate::{
         SignedMessage, VerifyStatusApiExt,
     },
     enc::{AesCiphertextRecv, AesNonce, AesSession},
-    identity::{IdentityRole, VerifyingIdentity},
+    identity::IdentityRole,
     srv::AppState,
 };
 
@@ -53,7 +53,7 @@ pub async fn start_session(
 
     state
         .sessions()
-        .insert(sid.clone(), enc_key.clone(), deadline, identity, role)
+        .insert(sid.clone(), enc_key.clone(), deadline, role)
         .await;
 
     let response_payload = SessionResponsePayload {
@@ -83,7 +83,6 @@ pub struct SessionState {
     aes_session: AesSession,
     deadline: DateTime<Utc>,
     nonces: HashSet<AesNonce>,
-    client_id: VerifyingIdentity,
     client_role: IdentityRole,
 }
 
@@ -136,7 +135,6 @@ impl SessionManager {
         session_id: SessionId,
         enc_key: SessionEncKey,
         deadline: DateTime<Utc>,
-        client_id: VerifyingIdentity,
         client_role: IdentityRole,
     ) {
         self.0.sessions.write().await.insert(
@@ -144,7 +142,6 @@ impl SessionManager {
             Arc::new(RwLock::new(SessionState {
                 aes_session: AesSession::new(enc_key.clone(), session_id.clone()),
                 deadline,
-                client_id,
                 client_role,
                 nonces: HashSet::new(),
             })),

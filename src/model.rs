@@ -174,6 +174,10 @@ impl Model {
 }
 
 impl ModelTx<'_> {
+    pub fn now(&self) -> DateTime<Utc> {
+        self.now
+    }
+
     pub async fn commit(self) -> ApiResult<()> {
         self.tx.commit().await.map_err(ApiError::internal)?;
         Ok(())
@@ -431,12 +435,20 @@ impl ModelTx<'_> {
         &mut self,
         session: &TxSession,
         name: &str,
-        key: &VerifyingIdentity,
+        certificate: &ServerCertificate,
         role: IdentityRole,
     ) -> ApiResult<IdentityResponse> {
         if name.is_empty() || role == IdentityRole::Server {
             return Err(ApiError::BadRequest);
         }
+        let claim = self.get_server_identity_claim(certificate.issuer()).await?;
+        if !certificate.matches_claim(&claim) {
+            return Err(ApiError::InvalidCertificate);
+        }
+        certificate
+            .check(self.now(), &claim.server_pubkey, &claim.issuer_pubkey)
+            .map_err(|_| ApiError::InvalidCertificate)?;
+
         let result = sqlx::query(
             "
             INSERT INTO identities (name, public_key, role, created_session_id)
@@ -444,11 +456,16 @@ impl ModelTx<'_> {
             ",
         )
         .bind(name)
-        .bind(key.hex())
+        .bind(certificate.issuer().hex())
         .bind(role.to_string())
         .bind(session.0)
         .execute(&mut *self.tx)
         .await;
+
+        let dir = self.data.server_cert_dir(certificate.issuer());
+        fs::create_dir_all(&dir).map_err(ApiError::internal)?;
+        certificate.save(&dir).map_err(ApiError::internal)?;
+
         match result {
             Ok(_) => Ok(IdentityResponse::Success),
             Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
