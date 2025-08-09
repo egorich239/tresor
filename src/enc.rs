@@ -1,5 +1,5 @@
-use crate::api::session::SessionEncKey;
-use crate::api::session::SessionId;
+use crate::api::SessionEncKey;
+use crate::api::SessionId;
 use aes_gcm::aead::Payload;
 use aes_gcm::{
     Aes256Gcm, Nonce,

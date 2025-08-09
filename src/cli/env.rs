@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs};
 
 use crate::{
-    api::env::{EnvRequest, EnvResponse, Envvar},
+    api::{EnvRequest, EnvResponse, Envvar},
     cli::{ClientError, ClientResult},
 };
 use serde::Deserialize;

@@ -14,13 +14,8 @@ use tresor::{
     config::Config,
     model::Model,
     srv::{
-        AppState,
-        claim::claim_handler,
-        env::env_handler,
-        identity::identity_handler,
-        publish::{get_handler, publish_handler},
-        secret_handler,
-        session::{self, CurrentTime},
+        AppState, CurrentTime, claim_handler, env_handler, get_handler, identity_handler,
+        publish_handler, secret_handler, start_session,
     },
 };
 
@@ -30,7 +25,7 @@ async fn start_session_handler(
     State(app): State<AppState>,
     req: Request<Body>,
 ) -> Response {
-    match session::start_session(now, &app, req).await {
+    match start_session(now, &app, req).await {
         Ok(encrypted_response) => (
             StatusCode::OK,
             [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],

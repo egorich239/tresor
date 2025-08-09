@@ -1,17 +1,11 @@
-use std::{io, path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr};
 
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 use reqwest::blocking::Client;
 use tresor::{
-    cli::{
-        ClientError, ClientResult,
-        env::env_create,
-        identity::{PubkeySource, identity_add},
-        secret_edit,
-        session::request_session,
-    },
-    config::{Config, ConfigError},
+    cli::{ClientError, ClientResult, env_create, identity_add, request_session, secret_edit},
+    config::Config,
     identity::{IdentityRole, SigningIdentity, SoftwareIdentity},
 };
 

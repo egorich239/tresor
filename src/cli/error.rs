@@ -2,7 +2,7 @@ use std::io;
 
 use thiserror::Error;
 
-use crate::{api::error::ApiError, config::ConfigError, identity::SignatureError};
+use crate::{api::ApiError, config::ConfigError, identity::SignatureError};
 
 #[derive(Error, Debug)]
 pub enum ClientError {

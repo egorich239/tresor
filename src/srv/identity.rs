@@ -1,10 +1,7 @@
 use axum::{extract::State, response::IntoResponse};
 
 use crate::{
-    api::{
-        error::ApiResult,
-        identity::{IdentityRequest, IdentityResponse},
-    },
+    api::{ApiResult, IdentityRequest, IdentityResponse},
     srv::{
         AppState,
         session::{CurrentTime, SessionQuery, SessionState},

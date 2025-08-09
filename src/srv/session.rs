@@ -18,9 +18,8 @@ use tokio::sync::RwLock;
 
 use crate::{
     api::{
-        SignedMessage,
-        error::{ApiError, ApiResult, VerifyStatusApiExt},
-        session::{SessionEncKey, SessionId, SessionRequest, SessionResponsePayload},
+        ApiError, ApiResult, SessionEncKey, SessionId, SessionRequest, SessionResponsePayload,
+        SignedMessage, VerifyStatusApiExt,
     },
     enc::{AesCiphertextRecv, AesNonce, AesSession},
     identity::{IdentityRole, VerifyingIdentity},

@@ -2,14 +2,10 @@ use axum::{extract::State, response::IntoResponse};
 use chrono::{DateTime, Utc};
 
 use crate::{
-    api::{
-        ServerIdentityClaim,
-        claim::{ClaimRequest, ClaimResponse},
-        error::ApiResult,
-    },
+    api::{ApiResult, ClaimRequest, ClaimResponse},
     srv::{
         AppState,
-        session::{CurrentTime, SessionQuery, SessionState},
+        session::{CurrentTime, SessionQuery},
     },
 };
 

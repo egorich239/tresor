@@ -5,9 +5,10 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
-use crate::api::secret::{SecretRequest, SecretResponse};
-use crate::cli::error::ClientResult;
-use crate::cli::session::Session;
+use crate::{
+    api::{SecretRequest, SecretResponse},
+    cli::{error::ClientResult, session::Session},
+};
 
 #[derive(Debug, Deserialize)]
 struct SecretOps {
