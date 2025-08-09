@@ -9,8 +9,8 @@ pub struct RandomBytes<const N: usize>([u8; N]);
 impl<const N: usize> RandomBytes<N> {
     pub fn generate() -> Self {
         // It so happens that rust only kinda has usize template params.
-        // Neither r#gen nor fill work for arbitrary sizes, because they are
-        // each individual array size requires a separate trait impl. Really?
+        // Neither r#gen nor fill work for arbitrary sizes, because each
+        // individual array size requires a separate trait impl. Really?
         let mut rng = rand::thread_rng();
         let mut bytes: [u8; N] = [0; N];
         for e in bytes.iter_mut() {
