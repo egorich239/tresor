@@ -18,7 +18,7 @@ use tokio::sync::RwLock;
 use crate::{
     api::{
         ApiError, ApiResult, SessionEncKey, SessionId, SessionRequest, SessionResponsePayload,
-        SignedMessage, VerifyStatusApiExt,
+        SignedMessage, VerifyStatus,
     },
     enc::{AesCiphertextRecv, AesNonce, AesSession},
     identity::IdentityRole,
@@ -35,7 +35,9 @@ pub async fn start_session(
     let Json(req) = req.map_err(|_| ApiError::BadRequest)?;
     let identity = req.payload().identity.clone();
     let client_id = tx.get_identity(&identity).await?;
-    req.verify(&identity).to_api_result()?;
+    if req.verify(&identity) != VerifyStatus::Ok {
+        return Err(ApiError::Forbidden);
+    }
     let srv_ident = tx.get_server_identity_for(&client_id).await?;
 
     let deadline = now + cfg.max_session_duration;

@@ -1,12 +1,9 @@
-
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-
-use crate::api::VerifyStatus;
 
 #[derive(Error, Debug, Serialize, Deserialize)]
 pub enum ApiError {
@@ -41,15 +38,3 @@ impl IntoResponse for ApiError {
 }
 
 pub type ApiResult<T> = std::result::Result<T, ApiError>;
-pub trait VerifyStatusApiExt {
-    fn to_api_result(self) -> ApiResult<()>;
-}
-
-impl VerifyStatusApiExt for VerifyStatus {
-    fn to_api_result(self) -> ApiResult<()> {
-        match self {
-            VerifyStatus::Ok => Ok(()),
-            VerifyStatus::Failed => Err(ApiError::Forbidden),
-        }
-    }
-}
