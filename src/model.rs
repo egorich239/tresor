@@ -164,7 +164,7 @@ impl Model {
     }
 
     pub async fn tx(&self, now: DateTime<Utc>) -> ApiResult<ModelTx<'_>> {
-        let tx = self.0.pool.begin().await.map_err(ApiError::internal)?;
+        let tx = self.0.pool.begin().await.map_err(|_| ApiError::Internal)?;
         Ok(ModelTx {
             tx,
             now,
@@ -179,7 +179,7 @@ impl ModelTx<'_> {
     }
 
     pub async fn commit(self) -> ApiResult<()> {
-        self.tx.commit().await.map_err(ApiError::internal)?;
+        self.tx.commit().await.map_err(|_| ApiError::Internal)?;
         Ok(())
     }
 
@@ -196,14 +196,14 @@ impl ModelTx<'_> {
         .bind(self.now.to_rfc3339())
         .fetch_optional(&mut *self.tx)
         .await
-        .map_err(|_| ApiError::InvalidIdentity)?
-        .ok_or(ApiError::InvalidIdentity)?;
+        .map_err(|_| ApiError::Unauthorized)?
+        .ok_or(ApiError::Unauthorized)?;
         let id = row.get("id");
         let role: String = row.get("role");
         Ok(ClientIdentity(
             id,
             key.clone(),
-            role.as_str().try_into().map_err(ApiError::internal)?,
+            role.as_str().try_into().map_err(|_| ApiError::Internal)?,
         ))
     }
 
@@ -221,19 +221,19 @@ impl ModelTx<'_> {
         )
         .fetch_optional(&mut *self.tx)
         .await
-        .map_err(ApiError::internal)?
-        .ok_or(ApiError::internal("no server identity found"))?;
+        .map_err(|_| ApiError::Internal)?
+        .ok_or(ApiError::Internal)?;
 
         let key: String = row.get("public_key");
-        let key = key.as_str().try_into().map_err(ApiError::internal)?;
+        let key = key.as_str().try_into().map_err(|_| ApiError::Internal)?;
         let created_at: DateTime<Utc> = row
             .get::<String, _>("created_at")
             .parse()
-            .map_err(ApiError::internal)?;
+            .map_err(|_| ApiError::Internal)?;
         let expires_at: DateTime<Utc> = row
             .get::<String, _>("expires_at")
             .parse()
-            .map_err(ApiError::internal)?;
+            .map_err(|_| ApiError::Internal)?;
 
         Ok(ServerIdentityClaim {
             server_pubkey: key,
@@ -256,40 +256,34 @@ impl ModelTx<'_> {
         )
         .fetch_all(&mut *self.tx)
         .await
-        .map_err(ApiError::internal)?;
+        .map_err(|_| ApiError::Internal)?;
 
         let certs_dir = self.data.server_cert_dir(&client.1);
         for row in server_identities {
             let pk: String = row.get("public_key");
-            let pk = pk
-                .as_str()
-                .try_into()
-                .map_err(|_| ApiError::internal("invalid public_key"));
-            if pk.is_err() {
-                continue;
-            }
-            let pk = pk.unwrap();
-            let cert = ServerCertificate::load(&certs_dir, &pk);
-            if cert.is_err() {
-                continue;
-            }
-            let cert = cert.unwrap();
+            let pk = match pk.as_str().try_into() {
+                Ok(pk) => pk,
+                Err(_) => continue,
+            };
+            let cert = match ServerCertificate::load(&certs_dir, &pk) {
+                Ok(cert) => cert,
+                Err(_) => continue,
+            };
             if cert.check(self.now, &pk, &client.1).is_err() {
                 continue;
             }
             let file = Model::_key_file(&self.data, cert.identity());
-            let srv_ident = SoftwareIdentity::load(&file);
-            if srv_ident.is_err() {
-                continue;
-            }
-            let srv_ident = srv_ident.unwrap();
+            let srv_ident = match SoftwareIdentity::load(&file) {
+                Ok(ident) => ident,
+                Err(_) => continue,
+            };
             if srv_ident.verifying_identity() != pk {
                 continue;
             }
             return Ok(ServerIdentity(row.get("id"), srv_ident, cert));
         }
 
-        Err(ApiError::InvalidServerIdentity)
+        Err(ApiError::Unauthorized)
     }
 
     pub async fn register_session(
@@ -315,7 +309,7 @@ impl ModelTx<'_> {
         .bind((self.now + duration).to_rfc3339())
         .execute(&mut *self.tx)
         .await
-        .map_err(ApiError::internal)?;
+        .map_err(|_| ApiError::Internal)?;
         Ok((session_id, enc_key, cli_ident.2))
     }
 
@@ -324,7 +318,7 @@ impl ModelTx<'_> {
             .bind(session_id.to_hex())
             .fetch_optional(&mut *self.tx)
             .await
-            .map_err(ApiError::internal)?
+            .map_err(|_| ApiError::Internal)?
             .ok_or(ApiError::Unauthorized)?;
         Ok(TxSession(row.get("id")))
     }
@@ -353,14 +347,12 @@ impl ModelTx<'_> {
         .fetch_optional(&mut *self.tx)
         .await;
         let key_id: i32 = match result {
-            Ok(row) => row
-                .ok_or(ApiError::internal("failed to insert secret key"))?
-                .get("id"),
+            Ok(row) => row.ok_or(ApiError::Internal)?.get("id"),
             Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
                 return Ok(SecretResponse::KeyExists);
             }
-            Err(e) => {
-                return Err(ApiError::internal(e));
+            Err(_) => {
+                return Err(ApiError::Internal);
             }
         };
 
@@ -373,7 +365,7 @@ impl ModelTx<'_> {
         .bind(session.0)
         .execute(&mut *self.tx)
         .await
-        .map_err(ApiError::internal)?;
+        .map_err(|_| ApiError::Internal)?;
         Ok(SecretResponse::Success)
     }
 
@@ -402,7 +394,7 @@ impl ModelTx<'_> {
             Err(sqlx::Error::Database(e)) if e.is_foreign_key_violation() => {
                 Ok(SecretResponse::KeyNotFound)
             }
-            Err(e) => Err(ApiError::internal(e)),
+            Err(_) => Err(ApiError::Internal),
         }
     }
 
@@ -424,7 +416,7 @@ impl ModelTx<'_> {
         .bind(name)
         .execute(&mut *self.tx)
         .await
-        .map_err(ApiError::internal)?;
+        .map_err(|_| ApiError::Internal)?;
         match result.rows_affected() {
             0 => Ok(SecretResponse::KeyNotFound),
             _ => Ok(SecretResponse::Success),
@@ -443,11 +435,11 @@ impl ModelTx<'_> {
         }
         let claim = self.get_server_identity_claim(certificate.issuer()).await?;
         if !certificate.matches_claim(&claim) {
-            return Err(ApiError::InvalidCertificate);
+            return Err(ApiError::Forbidden);
         }
         certificate
             .check(self.now(), &claim.server_pubkey, &claim.issuer_pubkey)
-            .map_err(|_| ApiError::InvalidCertificate)?;
+            .map_err(|_| ApiError::Forbidden)?;
 
         let result = sqlx::query(
             "
@@ -463,15 +455,15 @@ impl ModelTx<'_> {
         .await;
 
         let dir = self.data.server_cert_dir(certificate.issuer());
-        fs::create_dir_all(&dir).map_err(ApiError::internal)?;
-        certificate.save(&dir).map_err(ApiError::internal)?;
+        fs::create_dir_all(&dir).map_err(|_| ApiError::Internal)?;
+        certificate.save(&dir).map_err(|_| ApiError::Internal)?;
 
         match result {
             Ok(_) => Ok(IdentityResponse::Success),
             Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
                 Ok(IdentityResponse::AlreadyExists)
             }
-            Err(e) => Err(ApiError::internal(e)),
+            Err(_) => Err(ApiError::Internal),
         }
     }
 
@@ -498,13 +490,11 @@ impl ModelTx<'_> {
         .await;
 
         let env_id: i32 = match result {
-            Ok(row) => row
-                .ok_or(ApiError::internal("failed to insert env"))?
-                .get("id"),
+            Ok(row) => row.ok_or(ApiError::Internal)?.get("id"),
             Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
                 return Ok(EnvResponse::EnvExists);
             }
-            Err(e) => return Err(ApiError::internal(e)),
+            Err(_) => return Err(ApiError::Internal),
         };
 
         for pair in pairs {
@@ -522,7 +512,7 @@ impl ModelTx<'_> {
             .bind(&pair.key)
             .execute(&mut *self.tx)
             .await
-            .map_err(ApiError::internal)?;
+            .map_err(|_| ApiError::Internal)?;
 
             if result.rows_affected() == 0 {
                 return Err(ApiError::BadRequest);
@@ -554,7 +544,7 @@ impl ModelTx<'_> {
         .bind(env)
         .fetch_all(&mut *self.tx)
         .await
-        .map_err(ApiError::internal)?
+        .map_err(|_| ApiError::Internal)?
         .into_iter()
         .map(|row| Envvar {
             var: row.get("envvar"),

@@ -1,8 +1,7 @@
 use anyhow::{Context, Result, bail};
 use axum::{
-    Router,
-    body::Body,
-    extract::{Request, State},
+    Json, Router,
+    extract::{State, rejection::JsonRejection},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -10,6 +9,7 @@ use clap::{Args, Parser, Subcommand};
 use std::{net::SocketAddr, path::PathBuf};
 use tokio::net::TcpListener;
 use tresor::{
+    api::SessionRequest,
     config::Config,
     model::Model,
     srv::{
@@ -22,7 +22,7 @@ use tresor::{
 async fn start_session_handler(
     CurrentTime(now): CurrentTime,
     State(app): State<AppState>,
-    req: Request<Body>,
+    req: Result<Json<SessionRequest>, JsonRejection>,
 ) -> Response {
     start_session(now, &app, req).await.into_response()
 }

@@ -7,8 +7,7 @@ use std::{
 
 use axum::{
     Json,
-    body::Body,
-    extract::{FromRequest, FromRequestParts, Request},
+    extract::{FromRequest, FromRequestParts, Request, rejection::JsonRejection},
     http::request::Parts,
 };
 use chrono::{DateTime, Utc};
@@ -29,13 +28,11 @@ use crate::{
 pub async fn start_session(
     now: DateTime<Utc>,
     state: &AppState,
-    req: Request<Body>,
+    req: Result<Json<SessionRequest>, JsonRejection>,
 ) -> ApiResult<Vec<u8>> {
     let mut tx = state.model().tx(now).await?;
     let cfg = state.config();
-    let Json(req): Json<SessionRequest> = Json::from_request(req, &())
-        .await
-        .map_err(|_| ApiError::BadRequest)?;
+    let Json(req) = req.map_err(|_| ApiError::BadRequest)?;
     let identity = req.payload().identity.clone();
     let client_id = tx.get_identity(&identity).await?;
     req.verify(&identity).to_api_result()?;
@@ -63,9 +60,9 @@ pub async fn start_session(
         enc_key,
     };
 
-    let response =
-        SignedMessage::new(response_payload, srv_ident.identity()).map_err(ApiError::internal)?;
-    let bytes = serde_json::to_vec(&response).map_err(ApiError::internal)?;
+    let response = SignedMessage::new(response_payload, srv_ident.identity())
+        .map_err(|_| ApiError::Internal)?;
+    let bytes = serde_json::to_vec(&response).map_err(|_| ApiError::Internal)?;
     tx.commit().await?;
 
     Ok(req.payload().recepient.encrypt(&bytes))
@@ -106,7 +103,7 @@ impl SessionState {
     }
 
     async fn _ok<R: Serialize>(&self, response: R) -> (axum::http::StatusCode, Vec<u8>) {
-        match serde_json::to_vec(&response).map_err(ApiError::internal) {
+        match serde_json::to_vec(&response).map_err(|_| ApiError::Internal) {
             Ok(response) => {
                 let enc: Vec<u8> = self.aes_session.encrypt(&response).into();
                 (axum::http::StatusCode::OK, enc)
@@ -115,8 +112,7 @@ impl SessionState {
         }
     }
 
-    fn _err(&self, mut e: ApiError) -> (axum::http::StatusCode, Vec<u8>) {
-        e.sanitize();
+    fn _err(&self, e: ApiError) -> (axum::http::StatusCode, Vec<u8>) {
         (e.status_code(), serde_json::to_vec(&e).unwrap())
     }
 }
@@ -242,10 +238,7 @@ impl<Q: DeserializeOwned + Debug, const R: char> FromRequest<AppState> for Sessi
         let body = axum::body::to_bytes(body, usize::MAX)
             .await
             .map_err(|_| ApiError::BadRequest)?;
-        let now: &CurrentTime = parts
-            .extensions
-            .get()
-            .ok_or(ApiError::internal("no time source"))?;
+        let now: &CurrentTime = parts.extensions.get().ok_or(ApiError::Internal)?;
         let (session_ptr, query) = state
             .sessions()
             .get_query(now.0, &parts, &body, R.into())

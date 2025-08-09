@@ -72,7 +72,7 @@ async fn _publish_handler(
     let env = tx.env_get(&query.env).await?;
     tx.commit().await?;
 
-    let envvars = serde_json::to_vec(&env).map_err(ApiError::internal)?;
+    let envvars = serde_json::to_vec(&env).map_err(|_| ApiError::Internal)?;
     let key = SessionEncKey::generate();
     let sid = session.session_id().clone();
     let aes = AesSession::new(key.clone(), sid);
