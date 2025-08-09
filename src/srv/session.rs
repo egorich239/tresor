@@ -9,16 +9,18 @@ use axum::{
     Json,
     extract::{FromRequest, FromRequestParts, Request, rejection::JsonRejection},
     http::request::Parts,
+    response::{IntoResponse, Response},
 };
 use chrono::{DateTime, Utc};
 use futures::{StreamExt, stream};
 use serde::{Serialize, de::DeserializeOwned};
+use thiserror::Error;
 use tokio::sync::RwLock;
 
 use crate::{
     api::{
-        SessionEncKey, SessionId, SessionRequest, SessionResponsePayload, SignedMessage,
-        TransportError, TransportResult, VerifyStatus,
+        ApiError, ApiResult, AppError, AppResult, SessionEncKey, SessionId, SessionRequest,
+        SessionResponsePayload, SignedMessage, TransportError, TransportResult, VerifyStatus,
     },
     enc::{AesCiphertextRecv, AesNonce, AesSession},
     identity::IdentityRole,
@@ -85,6 +87,15 @@ pub struct SessionState {
     client_role: IdentityRole,
 }
 
+#[derive(Error, Debug)]
+pub(crate) enum ResponseError {
+    #[error(transparent)]
+    Transport(#[from] TransportError),
+
+    #[error(transparent)]
+    App(#[from] AppError),
+}
+
 impl SessionState {
     pub fn session_id(&self) -> &SessionId {
         self.aes_session.session_id()
@@ -92,6 +103,32 @@ impl SessionState {
 
     pub fn client_role(&self) -> IdentityRole {
         self.client_role
+    }
+
+    pub fn respond_api<R: Serialize>(&self, res: impl Into<ApiResult<R>>) -> Response {
+        match res.into() {
+            Ok(response) => self.respond_json(AppResult::Ok(response)),
+            Err(ApiError::App(e)) => self.respond_json::<AppResult<R>>(AppResult::Err(e)),
+            Err(ApiError::Transport(t)) => t.into_response(),
+        }
+    }
+
+    pub fn respond_raw<R: Serialize>(&self, res: impl Into<ApiResult<R>>) -> Response {
+        match res.into() {
+            Ok(response) => self.respond_json(response),
+            Err(ApiError::App(_)) => TransportError::Internal.into_response(),
+            Err(ApiError::Transport(t)) => t.into_response(),
+        }
+    }
+
+    fn respond_json<R: Serialize>(&self, res: R) -> Response {
+        match serde_json::to_vec(&res) {
+            Ok(response) => {
+                let enc: Vec<u8> = self.aes_session.encrypt(&response).into();
+                (axum::http::StatusCode::OK, enc).into_response()
+            }
+            Err(_) => TransportError::Internal.into_response(),
+        }
     }
 
     pub async fn response<R: Serialize>(

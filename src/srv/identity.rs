@@ -2,7 +2,7 @@ use axum::{extract::State, response::IntoResponse};
 use chrono::{DateTime, Utc};
 
 use crate::{
-    api::{IdentityRequest, IdentityResponse, ServerCertificate, TransportResult},
+    api::{ApiResult, IdentityRequest, IdentityResponse, ServerCertificate},
     identity::IdentityRole,
     model::{ModelTx, TxSession},
     srv::{
@@ -17,9 +17,7 @@ pub async fn identity_handler(
     SessionQuery { session, query }: SessionQuery<IdentityRequest, 'a'>,
 ) -> impl IntoResponse {
     let session = session.read().await;
-    session
-        .response(_identity_handler(&app, &session, query, now).await)
-        .await
+    session.respond_api(_identity_handler(&app, &session, query, now).await)
 }
 
 async fn _identity_handler(
@@ -27,7 +25,7 @@ async fn _identity_handler(
     session: &SessionState,
     req: IdentityRequest,
     now: DateTime<Utc>,
-) -> TransportResult<IdentityResponse> {
+) -> ApiResult<IdentityResponse> {
     let mut tx = app.model().tx(now).await?;
     let session_id = tx.get_session(session.session_id()).await?;
     let res = match req {
@@ -47,6 +45,6 @@ async fn _identity_add(
     name: &str,
     role: IdentityRole,
     certificate: &ServerCertificate,
-) -> TransportResult<IdentityResponse> {
+) -> ApiResult<IdentityResponse> {
     tx.identity_add(session_id, name, certificate, role).await
 }

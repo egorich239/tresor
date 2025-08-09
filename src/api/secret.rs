@@ -30,8 +30,4 @@ impl SecretRequest {
 /// As per the requirements, this is a message that indicates success
 /// but is empty of any specific data.
 #[derive(Serialize, Deserialize, Debug)]
-pub enum SecretResponse {
-    Success,
-    KeyExists,
-    KeyNotFound,
-}
+pub struct SecretResponse;

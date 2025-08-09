@@ -13,7 +13,4 @@ pub enum IdentityRequest {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub enum IdentityResponse {
-    Success,
-    AlreadyExists,
-}
+pub struct IdentityResponse;

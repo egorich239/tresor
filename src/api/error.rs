@@ -37,12 +37,50 @@ impl IntoResponse for TransportError {
     }
 }
 
+impl From<StatusCode> for TransportError {
+    fn from(status: StatusCode) -> Self {
+        match status {
+            StatusCode::BAD_REQUEST => TransportError::BadRequest,
+            StatusCode::FORBIDDEN => TransportError::Forbidden,
+            StatusCode::UNAUTHORIZED => TransportError::Unauthorized,
+            StatusCode::INTERNAL_SERVER_ERROR => TransportError::Internal,
+            _ => TransportError::Internal,
+        }
+    }
+}
+
 #[derive(Error, Debug, Serialize, Deserialize)]
 pub enum AppError {
-    #[error("internal error: {0}")]
-    Internal(String),
+    #[error("secret already exists")]
+    SecretAlreadyExists,
+
+    #[error("secret not found")]
+    SecretNotFound,
+
+    #[error("identity already exists")]
+    IdentityAlreadyExists,
+
+    #[error("identity not found")]
+    IdentityNotFound,
+
+    #[error("env already exists")]
+    EnvAlreadyExists,
+
+    #[error("unknown key: {0}")]
+    UnknownKey(String),
 }
 
 pub type AppResult<T> = std::result::Result<T, AppError>;
 
 pub type TransportResult<T> = std::result::Result<T, TransportError>;
+
+#[derive(Error, Debug)]
+pub enum ApiError {
+    #[error(transparent)]
+    Transport(#[from] TransportError),
+
+    #[error(transparent)]
+    App(#[from] AppError),
+}
+
+pub type ApiResult<T> = std::result::Result<T, ApiError>;

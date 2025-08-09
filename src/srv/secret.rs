@@ -1,5 +1,5 @@
 use crate::{
-    api::{SecretRequest, SecretResponse, TransportResult},
+    api::{ApiResult, SecretRequest, SecretResponse},
     srv::{
         AppState,
         session::{CurrentTime, SessionQuery, SessionState},
@@ -14,9 +14,7 @@ pub async fn secret_handler(
     SessionQuery { session, query }: SessionQuery<SecretRequest, 'a'>,
 ) -> impl IntoResponse {
     let session = session.read().await;
-    session
-        .response(_secret_handler(&app, &session, query, now).await)
-        .await
+    session.respond_api(_secret_handler(&app, &session, query, now).await)
 }
 
 async fn _secret_handler(
@@ -24,7 +22,7 @@ async fn _secret_handler(
     session: &SessionState,
     query: SecretRequest,
     now: DateTime<Utc>,
-) -> TransportResult<SecretResponse> {
+) -> ApiResult<SecretResponse> {
     let mut tx = app.model().tx(now).await?;
     let session_id = tx.get_session(session.session_id()).await?;
     let res = match query {

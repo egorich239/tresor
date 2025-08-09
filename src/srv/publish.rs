@@ -2,14 +2,14 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use axum::{
     extract::{Path, State},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
 };
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha512};
 use tokio::sync::RwLock;
 
 use crate::{
-    api::{PublishRequest, PublishResponse, SessionEncKey, TransportError, TransportResult},
+    api::{ApiResult, PublishRequest, PublishResponse, SessionEncKey, TransportError},
     enc::AesSession,
     srv::{
         AppState,
@@ -55,11 +55,9 @@ pub async fn publish_handler(
     State(app): State<AppState>,
     CurrentTime(now): CurrentTime,
     SessionQuery { session, query }: SessionQuery<PublishRequest, 'r'>,
-) -> impl IntoResponse {
+) -> Response {
     let session = session.read().await;
-    session
-        .response(_publish_handler(&app, &session, query, now).await)
-        .await
+    session.respond_api(_publish_handler(&app, &session, query, now).await)
 }
 
 async fn _publish_handler(
@@ -67,7 +65,7 @@ async fn _publish_handler(
     session: &SessionState,
     query: PublishRequest,
     now: DateTime<Utc>,
-) -> TransportResult<PublishResponse> {
+) -> ApiResult<PublishResponse> {
     let mut tx = app.model().tx(now).await?;
     let env = tx.env_get(&query.env).await?;
     tx.commit().await?;

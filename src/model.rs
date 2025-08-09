@@ -1,7 +1,8 @@
 use crate::{
     api::{
-        Env, EnvResponse, Envvar, IdentityResponse, Nonce, SecretResponse, ServerCertificate,
-        ServerIdentityClaim, SessionEncKey, SessionId, TransportError, TransportResult,
+        ApiResult, AppError, Env, EnvResponse, Envvar, IdentityResponse, Nonce, SecretResponse,
+        ServerCertificate, ServerIdentityClaim, SessionEncKey, SessionId, TransportError,
+        TransportResult,
     },
     config::{DataStore, Srv},
     identity::{IdentityRole, SignatureError, SoftwareIdentity, VerifyingIdentity},
@@ -345,9 +346,9 @@ impl ModelTx<'_> {
         name: &str,
         value: &str,
         description: &str,
-    ) -> TransportResult<SecretResponse> {
+    ) -> ApiResult<SecretResponse> {
         if name.is_empty() || description.is_empty() {
-            return Err(TransportError::BadRequest);
+            return Err(TransportError::BadRequest.into());
         }
 
         let result = sqlx::query(
@@ -365,10 +366,10 @@ impl ModelTx<'_> {
         let key_id: i32 = match result {
             Ok(row) => row.ok_or(TransportError::Internal)?.get("id"),
             Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
-                return Ok(SecretResponse::KeyExists);
+                return Err(AppError::SecretAlreadyExists.into());
             }
             Err(_) => {
-                return Err(TransportError::Internal);
+                return Err(TransportError::Internal.into());
             }
         };
 
@@ -382,7 +383,7 @@ impl ModelTx<'_> {
         .execute(&mut *self.tx)
         .await
         .map_err(|_| TransportError::Internal)?;
-        Ok(SecretResponse::Success)
+        Ok(SecretResponse)
     }
 
     pub async fn secret_update(
@@ -390,7 +391,7 @@ impl ModelTx<'_> {
         session: &TxSession,
         name: &str,
         value: &str,
-    ) -> TransportResult<SecretResponse> {
+    ) -> ApiResult<SecretResponse> {
         let result = sqlx::query(
             "
             INSERT INTO secrets (key_id, value, created_session_id)
@@ -406,11 +407,11 @@ impl ModelTx<'_> {
         .execute(&mut *self.tx)
         .await;
         match result {
-            Ok(_) => Ok(SecretResponse::Success),
+            Ok(_) => Ok(SecretResponse),
             Err(sqlx::Error::Database(e)) if e.is_foreign_key_violation() => {
-                Ok(SecretResponse::KeyNotFound)
+                Err(AppError::SecretNotFound.into())
             }
-            Err(_) => Err(TransportError::Internal),
+            Err(_) => Err(TransportError::Internal.into()),
         }
     }
 
@@ -418,7 +419,7 @@ impl ModelTx<'_> {
         &mut self,
         session: &TxSession,
         name: &str,
-    ) -> TransportResult<SecretResponse> {
+    ) -> ApiResult<SecretResponse> {
         let result = sqlx::query(
             "
             UPDATE secret_keys
@@ -434,8 +435,8 @@ impl ModelTx<'_> {
         .await
         .map_err(|_| TransportError::Internal)?;
         match result.rows_affected() {
-            0 => Ok(SecretResponse::KeyNotFound),
-            _ => Ok(SecretResponse::Success),
+            0 => Err(AppError::SecretNotFound.into()),
+            _ => Ok(SecretResponse),
         }
     }
 
@@ -445,13 +446,13 @@ impl ModelTx<'_> {
         name: &str,
         certificate: &ServerCertificate,
         role: IdentityRole,
-    ) -> TransportResult<IdentityResponse> {
+    ) -> ApiResult<IdentityResponse> {
         if name.is_empty() || role == IdentityRole::Server {
-            return Err(TransportError::BadRequest);
+            return Err(TransportError::BadRequest.into());
         }
         let claim = self.get_server_identity_claim(certificate.issuer()).await?;
         if !certificate.matches_claim(&claim) {
-            return Err(TransportError::Forbidden);
+            return Err(TransportError::Forbidden.into());
         }
         certificate
             .check(self.now(), &claim.server_pubkey, &claim.issuer_pubkey)
@@ -477,11 +478,11 @@ impl ModelTx<'_> {
             .map_err(|_| TransportError::Internal)?;
 
         match result {
-            Ok(_) => Ok(IdentityResponse::Success),
+            Ok(_) => Ok(IdentityResponse),
             Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
-                Ok(IdentityResponse::AlreadyExists)
+                Err(AppError::IdentityAlreadyExists.into())
             }
-            Err(_) => Err(TransportError::Internal),
+            Err(_) => Err(TransportError::Internal.into()),
         }
     }
 
@@ -490,9 +491,9 @@ impl ModelTx<'_> {
         session: &TxSession,
         env: &str,
         pairs: &[Envvar],
-    ) -> TransportResult<EnvResponse> {
+    ) -> ApiResult<EnvResponse> {
         if env.is_empty() {
-            return Err(TransportError::BadRequest);
+            return Err(TransportError::BadRequest.into());
         }
 
         let result = sqlx::query(
@@ -510,9 +511,9 @@ impl ModelTx<'_> {
         let env_id: i32 = match result {
             Ok(row) => row.ok_or(TransportError::Internal)?.get("id"),
             Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
-                return Ok(EnvResponse::EnvExists);
+                return Err(AppError::EnvAlreadyExists.into());
             }
-            Err(_) => return Err(TransportError::Internal),
+            Err(_) => return Err(TransportError::Internal.into()),
         };
 
         for pair in pairs {
@@ -533,14 +534,14 @@ impl ModelTx<'_> {
             .map_err(|_| TransportError::Internal)?;
 
             if result.rows_affected() == 0 {
-                return Err(TransportError::BadRequest);
+                return Err(AppError::UnknownKey(pair.key.clone()).into());
             }
         }
 
-        Ok(EnvResponse::Success)
+        Ok(EnvResponse)
     }
 
-    pub async fn env_get(&mut self, env: &str) -> TransportResult<Env> {
+    pub async fn env_get(&mut self, env: &str) -> ApiResult<Env> {
         let mut envvars: Vec<_> = sqlx::query(
             "
             SELECT ev.envvar envvar, s2.value value

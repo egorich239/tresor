@@ -22,7 +22,4 @@ pub type Env = Vec<Envvar>;
 
 /// Response for environment operations
 #[derive(Serialize, Deserialize, Debug)]
-pub enum EnvResponse {
-    Success,
-    EnvExists,
-}
+pub struct EnvResponse;

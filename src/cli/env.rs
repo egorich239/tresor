@@ -24,11 +24,8 @@ pub fn env_create(session: &Session, file: &Path) -> ClientResult<()> {
         .map(|(var, key)| Envvar { var, key })
         .collect();
 
-    let res: EnvResponse = session.query("env", EnvRequest::Create { env, pairs })?;
-    match res {
-        EnvResponse::Success => println!("Environment created successfully"),
-        EnvResponse::EnvExists => println!("Environment already exists"),
-    };
+    let _res: EnvResponse = session.query("env", EnvRequest::Create { env, pairs })?;
+    println!("environment created");
     Ok(())
 }
 

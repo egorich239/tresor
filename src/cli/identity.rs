@@ -21,7 +21,7 @@ pub fn identity_add(
     let key = identity.verifying_identity();
     let claim: ClaimResponse = session.query("claim", ClaimRequest { issuer: key })?;
     let certificate = ServerCertificate::new(claim.claim, &*identity)?;
-    let res: IdentityResponse = session.query(
+    let _res: IdentityResponse = session.query(
         "identity",
         IdentityRequest::Add {
             name,
@@ -29,9 +29,6 @@ pub fn identity_add(
             certificate,
         },
     )?;
-    match res {
-        IdentityResponse::Success => println!("identity added"),
-        IdentityResponse::AlreadyExists => println!("identity already exists"),
-    };
+    println!("identity added");
     Ok(())
 }

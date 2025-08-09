@@ -25,9 +25,7 @@ pub fn secret_edit(session: &Session, script: PathBuf) -> ClientResult<()> {
         let resp: ClientResult<SecretResponse> = session.query("secret", op);
         match resp {
             Err(e) => println!("{name}\terror: {e}"),
-            Ok(SecretResponse::Success) => println!("{name}\tsuccess"),
-            Ok(SecretResponse::KeyExists) => println!("{name}\texists"),
-            Ok(SecretResponse::KeyNotFound) => println!("{name}\tnot found"),
+            Ok(_) => println!("{name}\tsuccess"),
         }
     }
 

@@ -2,12 +2,19 @@ use std::io;
 
 use thiserror::Error;
 
-use crate::{api::TransportError, config::ConfigError, identity::SignatureError};
+use crate::{
+    api::{AppError, TransportError},
+    config::ConfigError,
+    identity::SignatureError,
+};
 
 #[derive(Error, Debug)]
 pub enum ClientError {
     #[error(transparent)]
     TransportError(#[from] TransportError),
+
+    #[error(transparent)]
+    AppError(#[from] AppError),
 
     #[error(transparent)]
     SignatureError(#[from] SignatureError),

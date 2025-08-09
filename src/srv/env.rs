@@ -2,7 +2,7 @@ use axum::{extract::State, response::IntoResponse};
 use chrono::{DateTime, Utc};
 
 use crate::{
-    api::{EnvRequest, EnvResponse, TransportResult},
+    api::{ApiResult, EnvRequest, EnvResponse},
     srv::{
         AppState,
         session::{CurrentTime, SessionQuery, SessionState},
@@ -15,9 +15,7 @@ pub async fn env_handler(
     SessionQuery { session, query }: SessionQuery<EnvRequest, 'a'>,
 ) -> impl IntoResponse {
     let session = session.read().await;
-    session
-        .response(_env_handler(&app, &session, query, now).await)
-        .await
+    session.respond_api(_env_handler(&app, &session, query, now).await)
 }
 
 async fn _env_handler(
@@ -25,7 +23,7 @@ async fn _env_handler(
     session: &SessionState,
     query: EnvRequest,
     now: DateTime<Utc>,
-) -> TransportResult<EnvResponse> {
+) -> ApiResult<EnvResponse> {
     let mut tx = app.model().tx(now).await?;
     let session_id = tx.get_session(session.session_id()).await?;
 

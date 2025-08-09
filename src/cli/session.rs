@@ -1,7 +1,7 @@
 use crate::{
     age::RecepientStr,
     api::{
-        Nonce, SessionEncKey, SessionRequestPayload, SessionResponse, SignedMessage,
+        AppResult, Nonce, SessionEncKey, SessionRequestPayload, SessionResponse, SignedMessage,
         TransportError, VerifyStatus,
     },
     cli::{ClientError, ClientResult},
@@ -39,8 +39,7 @@ impl<'c> Session<'c> {
             .send()?;
 
         if !response.status().is_success() {
-            let err: TransportError = response.json()?;
-            return Err(err.into());
+            return Err(TransportError::from(response.status()).into());
         }
 
         let response = response.bytes()?;
@@ -52,9 +51,12 @@ impl<'c> Session<'c> {
             .aes_session
             .decrypt(response)
             .ok_or(ClientError::MalformedResponse)?;
-        let response =
+        let response: AppResult<A> =
             serde_json::from_slice(&response).map_err(|_| ClientError::MalformedResponse)?;
-        Ok(response)
+        match response {
+            Ok(response) => Ok(response),
+            Err(e) => Err(e.into()),
+        }
     }
 
     pub fn get_endpoint_session(&self, key: &SessionEncKey) -> Session<'c> {
