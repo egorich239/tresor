@@ -15,7 +15,7 @@ pub enum EnvRequest {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Envvar {
     pub var: String,
-    pub key: String,
+    pub value: String,
 }
 
 pub type Env = Vec<Envvar>;

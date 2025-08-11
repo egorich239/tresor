@@ -21,7 +21,7 @@ pub fn env_create(session: &Session, file: &Path) -> ClientResult<()> {
 
     let pairs: Vec<Envvar> = kvs
         .into_iter()
-        .map(|(var, key)| Envvar { var, key })
+        .map(|(var, key)| Envvar { var, value: key })
         .collect();
 
     let _res: EnvResponse = session.query("env", EnvRequest::Create { env, pairs })?;

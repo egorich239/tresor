@@ -528,13 +528,13 @@ impl ModelTx<'_> {
             .bind(env_id)
             .bind(&pair.var)
             .bind(session.0)
-            .bind(&pair.key)
+            .bind(&pair.value)
             .execute(&mut *self.tx)
             .await
             .map_err(|_| TransportError::Internal)?;
 
             if result.rows_affected() == 0 {
-                return Err(AppError::UnknownKey(pair.key.clone()).into());
+                return Err(AppError::UnknownKey(pair.value.clone()).into());
             }
         }
 
@@ -567,7 +567,7 @@ impl ModelTx<'_> {
         .into_iter()
         .map(|row| Envvar {
             var: row.get("envvar"),
-            key: row.get("value"),
+            value: row.get("value"),
         })
         .collect();
         envvars.sort_by_key(|e| e.var.clone());
