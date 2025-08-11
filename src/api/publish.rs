@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{api::session::SessionEncKey, enc::AesNonce};
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct PublishRequest {
+pub struct     PublishRequest {
     pub env: String,
 }
 

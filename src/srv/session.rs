@@ -14,12 +14,11 @@ use axum::{
 use chrono::{DateTime, Utc};
 use futures::{StreamExt, stream};
 use serde::{Serialize, de::DeserializeOwned};
-use thiserror::Error;
 use tokio::sync::RwLock;
 
 use crate::{
     api::{
-        ApiError, ApiResult, AppError, AppResult, SessionEncKey, SessionId, SessionRequest,
+        ApiError, ApiResult, AppResult, SessionEncKey, SessionId, SessionRequest,
         SessionResponsePayload, SignedMessage, TransportError, TransportResult, VerifyStatus,
     },
     enc::{AesCiphertextRecv, AesNonce, AesSession},
@@ -85,15 +84,6 @@ pub struct SessionState {
     deadline: DateTime<Utc>,
     nonces: HashSet<AesNonce>,
     client_role: IdentityRole,
-}
-
-#[derive(Error, Debug)]
-pub(crate) enum ResponseError {
-    #[error(transparent)]
-    Transport(#[from] TransportError),
-
-    #[error(transparent)]
-    App(#[from] AppError),
 }
 
 impl SessionState {
