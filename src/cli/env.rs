@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{collections::HashMap, fs, path::Path};
 
 use crate::{
@@ -5,7 +6,40 @@ use crate::{
     cli::{ClientError, ClientResult, Session},
 };
 use serde::Deserialize;
+use shell_quote::{Bash, QuoteRefExt};
 use toml;
+
+#[derive(clap::ValueEnum, Clone, Debug)]
+#[clap(rename_all = "lowercase")]
+pub enum OutputFormat {
+    Shell,
+    Json,
+}
+
+impl fmt::Display for OutputFormat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OutputFormat::Shell => write!(f, "shell"),
+            OutputFormat::Json => write!(f, "json"),
+        }
+    }
+}
+
+pub fn env_print(env: &Env, format: &OutputFormat) -> ClientResult<()> {
+    match format {
+        OutputFormat::Shell => {
+            for Envvar { var, value } in env {
+                let quoted: String = value.quoted(Bash);
+                println!("{var}={quoted}");
+            }
+        }
+        OutputFormat::Json => {
+            let json = serde_json::to_string_pretty(env).map_err(ClientError::internal)?;
+            println!("{json}");
+        }
+    }
+    Ok(())
+}
 
 #[derive(Deserialize)]
 struct Envs(HashMap<String, HashMap<String, String>>);
