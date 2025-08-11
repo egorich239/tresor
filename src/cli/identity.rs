@@ -1,16 +1,8 @@
-use std::path::PathBuf;
-
 use crate::{
     api::{ClaimRequest, ClaimResponse, IdentityRequest, IdentityResponse, ServerCertificate},
     cli::{ClientResult, Session},
     identity::{IdentityRole, SigningIdentity},
 };
-
-pub enum PubkeySource {
-    Inline(String),
-    PrivateKeyFile(PathBuf),
-    PublicKeyFile(PathBuf),
-}
 
 pub fn identity_add(
     session: &Session,

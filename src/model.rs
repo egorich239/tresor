@@ -555,6 +555,7 @@ impl ModelTx<'_> {
                 INNER JOIN secrets s
                 ON ev.key_id = s.key_id
                 WHERE e.name = ?1 AND e.deleted_at IS NULL
+                GROUP BY ev.key_id
                 ) s1
             ON ev.key_id = s1.key_id
             INNER JOIN secrets s2
