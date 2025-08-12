@@ -1,7 +1,6 @@
 use clap::ValueEnum;
-use ed25519_dalek::{Signature, VerifyingKey};
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use sha2::Sha512;
 use std::fmt::{self, Display};
 use std::io;
 use thiserror::Error;
@@ -21,7 +20,7 @@ impl SignatureError {
 pub trait SigningIdentity {
     fn verifying_identity(&self) -> VerifyingIdentity;
 
-    fn sign_prehashed(&self, prehashed: Sha512) -> SignatureResult<Signature>;
+    fn sign(&self, payload: &[u8]) -> SignatureResult<Signature>;
 }
 
 /// An identity whose public key and certificate are known, used for verification.
@@ -85,8 +84,8 @@ impl VerifyingIdentity {
         hex::encode(self.0.as_bytes())
     }
 
-    pub fn verify_prehashed(&self, digest: Sha512, signature: &Signature) -> bool {
-        self.key().verify_prehashed(digest, None, signature).is_ok()
+    pub fn verify(&self, payload: &[u8], signature: &Signature) -> bool {
+        self.key().verify(payload, signature).is_ok()
     }
 
     fn key(&self) -> &VerifyingKey {

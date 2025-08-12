@@ -102,9 +102,8 @@ pub fn request_session<'c>(
         .post(format!("{server_url}/session"))
         .json(&request)
         .send()?;
-
     if !response.status().is_success() {
-        let err: TransportError = response.json()?;
+        let err: TransportError = response.status().into();
         return Err(ClientError::TransportError(err));
     }
 

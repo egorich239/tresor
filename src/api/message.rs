@@ -2,7 +2,6 @@ use std::fmt::Debug;
 
 use ed25519_dalek::Signature;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use sha2::{Digest, Sha512};
 
 use crate::identity::{SignatureError, SignatureResult, SigningIdentity, VerifyingIdentity};
 
@@ -23,18 +22,16 @@ pub enum VerifyStatus {
 
 impl<P: Serialize + Clone + Debug> SignedMessage<P> {
     pub fn new(payload: P, identity: &dyn SigningIdentity) -> SignatureResult<Self> {
-        let signature = MessageSignature(identity.sign_prehashed(Self::_prehash(&payload)?)?);
+        let bytes = Self::_bytes(&payload)?;
+        let signature = MessageSignature(identity.sign(&bytes)?);
         Ok(Self { payload, signature })
     }
 
     pub fn verify(&self, identity: &VerifyingIdentity) -> VerifyStatus {
-        let prehash = Self::_prehash(&self.payload);
-        if prehash.is_err() {
+        let Ok(bytes) = Self::_bytes(&self.payload) else {
             return VerifyStatus::Failed;
-        }
-
-        let prehash = prehash.unwrap();
-        match identity.verify_prehashed(prehash, self.signature()) {
+        };
+        match identity.verify(&bytes, self.signature()) {
             true => VerifyStatus::Ok,
             false => VerifyStatus::Failed,
         }
@@ -48,11 +45,8 @@ impl<P: Serialize + Clone + Debug> SignedMessage<P> {
         &self.payload
     }
 
-    fn _prehash(payload: &P) -> SignatureResult<Sha512> {
-        let bytes = serde_json::to_vec(payload).map_err(SignatureError::new)?;
-        let mut prehashed = Sha512::new();
-        prehashed.update(&bytes);
-        Ok(prehashed)
+    fn _bytes(payload: &P) -> SignatureResult<Vec<u8>> {
+        serde_json::to_vec(payload).map_err(SignatureError::new)
     }
 }
 

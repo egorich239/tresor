@@ -28,3 +28,7 @@ sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "sqlite-unbundle
 thiserror = "2.0.12"
 tokio = { version = "1.47.1", features = ["full"] }
 toml = "0.9.4"
+
+[package.metadata.deb]
+section = "admin"
+extended-description = ""

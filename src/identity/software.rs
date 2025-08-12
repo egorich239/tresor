@@ -2,10 +2,10 @@ use std::{io, path::Path};
 
 use ed25519_dalek::{
     Signature, SigningKey,
+    ed25519::signature::Signer,
     pkcs8::{DecodePrivateKey, EncodePrivateKey, spki::der::pem::LineEnding},
 };
 use rand::rngs::OsRng;
-use sha2::Sha512;
 
 use crate::identity::{SignatureError, SignatureResult, SigningIdentity, VerifyingIdentity};
 
@@ -28,9 +28,9 @@ impl SoftwareIdentity {
         VerifyingIdentity::new(self.key().verifying_key())
     }
 
-    pub fn sign_prehashed(&self, digest: Sha512) -> SignatureResult<Signature> {
+    pub fn sign(&self, payload: &[u8]) -> SignatureResult<Signature> {
         self.key()
-            .sign_prehashed(digest, None)
+            .try_sign(payload)
             .map_err(|e| SignatureError(e.to_string()))
     }
 
@@ -55,7 +55,7 @@ impl SigningIdentity for SoftwareIdentity {
         self.verifying_identity()
     }
 
-    fn sign_prehashed(&self, prehashed: Sha512) -> SignatureResult<Signature> {
-        self.sign_prehashed(prehashed)
+    fn sign(&self, payload: &[u8]) -> SignatureResult<Signature> {
+        self.sign(payload)
     }
 }
