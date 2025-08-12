@@ -1,0 +1,10 @@
+[srv]
+data = "/var/run/tresor-srv/data"
+port = 5000
+
+sw_identity_rot_period = "1 year"
+max_session_duration = "10 minutes"
+
+[backup]
+dir = "/var/run/tresor-srv/backup"
+

@@ -30,5 +30,18 @@ tokio = { version = "1.47.1", features = ["full"] }
 toml = "0.9.4"
 
 [package.metadata.deb]
+name = "tresor"
+section = "utils"
+extended-description = "Tresor CLI tool package"
+assets = [
+    ["target/release/tresor", "/usr/bin/tresor", "755"],
+]
+
+[package.metadata.deb.variants.srv]
+name = "tresor-srv"
 section = "admin"
-extended-description = ""
+extended-description = "Tresor server"
+depends = "tresor (>= $auto)"
+assets = [
+    ["target/release/tresor-srv", "/usr/bin/tresor-srv", "755"],
+]
