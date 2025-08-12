@@ -41,7 +41,9 @@ assets = [
 name = "tresor-srv"
 section = "admin"
 extended-description = "Tresor server"
-depends = "tresor (>= $auto)"
+depends = "tresor (>= $auto), systemd"
 assets = [
     ["target/release/tresor-srv", "/usr/bin/tresor-srv", "755"],
+    ["deb/files/etc/tresor/config.toml", "/etc/tresor/config.toml", "644"],
+    ["deb/files/lib/systemd/system/tresor.service", "/lib/systemd/system/tresor.service", "644"],
 ]
