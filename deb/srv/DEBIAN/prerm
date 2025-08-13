@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    remove)
+        if command -v systemctl >/dev/null; then
+            systemctl stop tresor.service
+            systemctl disable tresor.service
+        fi
+esac
+
+exit 0

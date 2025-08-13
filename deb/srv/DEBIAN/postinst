@@ -1,0 +1,49 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        if ! getent group tresor >/dev/null; then
+            echo "Adding system group 'tresor'..."
+            addgroup --system tresor
+        fi
+
+        if ! getent passwd tresor >/dev/null; then
+            echo "Adding system user 'tresor'..."
+            adduser --system \
+                    --disabled-password \
+                    --ingroup tresor \
+                    --no-create-home \
+                    --shell /bin/bash \
+                    tresor
+        fi
+
+        echo "Initializing /etc/tresor..."
+        chown -R tresor:tresor /etc/tresor
+        chmod 755 /etc/tresor
+
+        echo "Initializing /var/lib/tresor..."
+        mkdir -p /var/lib/tresor
+        chown -R tresor:tresor /var/lib/tresor
+        chmod 750 /var/lib/tresor
+
+        echo "Initializing /var/log/tresor..."
+        mkdir -p /var/log/tresor
+        chown -R tresor:tresor /var/log/tresor
+        chmod 750 /var/log/tresor
+
+        if [ ! -d /var/lib/tresor/data ]; then
+            echo "Initializing tresor storage..."
+            sudo -u tresor /usr/bin/tresor-srv -c /etc/tresor/config.toml init
+        fi
+
+        # Reload and enable the service
+        if command -v systemctl >/dev/null; then
+            systemctl daemon-reload
+            systemctl enable tresor.service
+            systemctl start tresor.service
+        fi
+        ;;
+esac
+
+exit 0

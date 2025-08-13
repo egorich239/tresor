@@ -1,0 +1,33 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    purge)
+        if [ -d /var/run/tresor ]; then
+            echo "Removing /var/run/tresor..."
+            rm -rf /var/run/tresor
+        fi
+
+        if [ -d /var/lib/tresor ]; then
+            echo "Removing /var/lib/tresor..."
+            rm -rf /var/lib/tresor
+        fi
+
+        if [ -d /var/log/tresor ]; then
+            echo "Removing /var/log/tresor..."
+            rm -rf /var/log/tresor
+        fi
+
+        if getent passwd tresor >/dev/null; then
+            echo "Removing system user 'tresor'..."
+            deluser --system tresor
+        fi
+
+        if getent group tresor >/dev/null; then
+            echo "Removing system group 'tresor'..."
+            delgroup --system tresor
+        fi
+    ;;
+esac
+
+exit 0

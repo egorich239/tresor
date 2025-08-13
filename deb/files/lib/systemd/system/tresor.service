@@ -14,11 +14,12 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=tresor-srv
 
-NoNewPriviledges=true
+NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
 ReadWritePaths=/var/lib/tresor /var/log/tresor
+RuntimeDirectory=tresor
 
 [Install]
 WantedBy=multi-user.target

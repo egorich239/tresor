@@ -1,6 +1,6 @@
 [package]
 name = "tresor"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "A simplistic secrets storage for personal use"
 license = "Apache-2.0"
@@ -41,9 +41,12 @@ assets = [
 name = "tresor-srv"
 section = "admin"
 extended-description = "Tresor server"
-depends = "tresor (>= $auto), systemd"
+depends = "$auto, tresor (>= 0.1.2), systemd"
 assets = [
-    ["target/release/tresor-srv", "/usr/bin/tresor-srv", "755"],
+    ["deb/files/etc/sudoers.d/tresor", "/etc/sudoers.d/tresor", "440"],
     ["deb/files/etc/tresor/config.toml", "/etc/tresor/config.toml", "644"],
     ["deb/files/lib/systemd/system/tresor.service", "/lib/systemd/system/tresor.service", "644"],
+    ["deb/files/usr/bin/tresorctl", "/usr/bin/tresorctl", "755"],
+    ["target/release/tresor-srv", "/usr/bin/tresor-srv", "755"],
 ]
+maintainer-scripts = "deb/srv/DEBIAN/"
