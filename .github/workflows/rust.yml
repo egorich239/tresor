@@ -24,7 +24,7 @@ jobs:
     - name: Build
       run: cargo build
     - name: Package
-      run: cargo deb
+      run: cargo deb && cargo deb --variant srv
     - name: Run tests
       run: cargo test
     - name: Publish

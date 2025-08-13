@@ -1,4 +1,15 @@
 #!/bin/sh
 set -e
-sudo -u tresor /usr/bin/tresor "$@"
+
+for arg in "$@"; do
+    case "$arg" in
+        -R*|--root|-K*|--identity-key)
+            echo "Error: tresorctl runs with predefined session identity." >&2
+            echo "Use the regular \`tresor\` command to run with custom session identity." >&2
+            exit 1
+            ;;
+    esac
+done
+
+sudo -u tresor /usr/bin/tresor -R /etc/tresor/config.toml "$@"
 

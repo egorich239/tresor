@@ -64,7 +64,7 @@ struct SessionIdentityArg {
     #[arg(short('R'), long, group = "session-identity")]
     root: Option<PathBuf>,
     #[arg(short('K'), long, group = "session-identity")]
-    key: Option<KeyIdentityArg>,
+    identity_key: Option<KeyIdentityArg>,
 }
 
 #[derive(Parser, Debug)]
@@ -99,7 +99,7 @@ impl Identity {
                 host: "localhost".to_string(),
                 port: config.srv.port,
             })
-        } else if let Some(key_arg) = args.key {
+        } else if let Some(key_arg) = args.identity_key {
             let key = SoftwareIdentity::load(&key_arg.key)?;
             Ok(Identity::Software {
                 identity: key,
