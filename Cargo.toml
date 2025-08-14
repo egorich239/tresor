@@ -1,6 +1,6 @@
 [package]
 name = "tresor"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 description = "A simplistic secrets storage for personal use"
 license = "Apache-2.0"
@@ -41,7 +41,7 @@ assets = [
 name = "tresor-srv"
 section = "admin"
 extended-description = "Tresor server"
-depends = "$auto, tresor (>= 0.1.3), systemd"
+depends = "libc6 (>= 2.34), libsqlite3-0 (>= 3.36.0), libssl3 (>= 3.0.0), systemd, tresor (>= 0.1.3)"
 assets = [
     ["deb/files/etc/sudoers.d/tresor", "/etc/sudoers.d/tresor", "440"],
     ["deb/files/etc/tresor/config.toml", "/etc/tresor/config.toml", "644"],
