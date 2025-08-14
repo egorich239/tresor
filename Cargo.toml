@@ -1,6 +1,6 @@
 [package]
 name = "tresor"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 description = "A simplistic secrets storage for personal use"
 license = "Apache-2.0"
@@ -33,6 +33,7 @@ toml = "0.9.4"
 name = "tresor"
 section = "utils"
 extended-description = "Tresor CLI tool package"
+depends = "libc6 (>= 2.34), libssl3 (>= 3.0.0)"
 assets = [
     ["target/release/tresor", "/usr/bin/tresor", "755"],
 ]
